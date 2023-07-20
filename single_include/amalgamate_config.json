@@ -1,0 +1,11 @@
+{
+    "project": "Logger for C++",
+    "target": "single_include/blet/logger.h",
+    "include_paths": [
+        "include"
+    ],
+    "sources": [
+        "include/blet/logger.h",
+        "src/logger.cpp"
+    ]
+}
