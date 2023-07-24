@@ -7,8 +7,8 @@ int main(int argc, char* argv[]) {
     (void)argc;
     (void)argv;
 
-    blet::Logger logger;
-    logger.setName("foobar");
+    blet::Logger logger("test");
+    logger.log(blet::Logger::ALERT, "%s", "woot?");
     test(logger);
     return 0;
 }

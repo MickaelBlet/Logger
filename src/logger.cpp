@@ -30,6 +30,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
+#include <sys/types.h>
 
 #include <iostream>
 #include <list>
@@ -42,18 +43,92 @@
 #define LOGGER_SEPARATOR   static_cast<char>(-42)
 #define LOGGER_CLOSE_BRACE static_cast<char>(-43)
 
+// #ifdef LOGGER_COLOR_LEVELS
+#ifdef LOGGER_DEFAULT_FORMAT
+#undef LOGGER_DEFAULT_FORMAT
+#endif
+#define LOGGER_COLOR_RESET "\033[0m"
+#define LOGGER_COLOR_BLACK_FG "\033[30m"
+#define LOGGER_COLOR_RED_FG "\033[31m"
+#define LOGGER_COLOR_GREEN_FG "\033[32m"
+#define LOGGER_COLOR_YELLOW_FG "\033[33m"
+#define LOGGER_COLOR_BLUE_FG "\033[34m"
+#define LOGGER_COLOR_MAGENTA_FG "\033[35m"
+#define LOGGER_COLOR_CYAN_FG "\033[36m"
+#define LOGGER_COLOR_GRAY_FG "\033[37m"
+#define LOGGER_COLOR_RED_BG "\033[41m"
+#define LOGGER_COLOR_GREEN_BG "\033[42m"
+#define LOGGER_COLOR_YELLOW_BG "\033[43m"
+#define LOGGER_COLOR_BLUE_BG "\033[44m"
+#define LOGGER_COLOR_MAGENTA_BG "\033[45m"
+#define LOGGER_COLOR_CYAN_BG "\033[46m"
+#define LOGGER_COLOR_GRAY_BG "\033[47m"
+
+#define LOGGER_DEFAULT_FORMAT " [{pid}:{tid}] {name:%10s}: {time}.{decimal:%03d}:{file: %25s:}{line:%-3d} {message}"
+#define LOGGER_EMERGENCY_FORMAT LOGGER_COLOR_MAGENTA_BG LOGGER_COLOR_BLACK_FG "{level:%-6s}" LOGGER_DEFAULT_FORMAT LOGGER_COLOR_RESET
+#define LOGGER_ALERT_FORMAT LOGGER_COLOR_MAGENTA_FG "{level:%-6s}" LOGGER_DEFAULT_FORMAT LOGGER_COLOR_RESET
+#define LOGGER_CRITICAL_FORMAT LOGGER_COLOR_RED_BG LOGGER_COLOR_BLACK_FG "{level:%-6s}" LOGGER_DEFAULT_FORMAT LOGGER_COLOR_RESET
+#define LOGGER_ERROR_FORMAT LOGGER_COLOR_RED_FG "{level:%-6s}" LOGGER_DEFAULT_FORMAT LOGGER_COLOR_RESET
+#define LOGGER_WARNING_FORMAT LOGGER_COLOR_YELLOW_FG "{level:%-6s}" LOGGER_DEFAULT_FORMAT LOGGER_COLOR_RESET
+#define LOGGER_NOTICE_FORMAT LOGGER_COLOR_CYAN_FG "{level:%-6s}" LOGGER_DEFAULT_FORMAT LOGGER_COLOR_RESET
+#define LOGGER_INFO_FORMAT LOGGER_COLOR_BLUE_FG "{level:%-6s}" LOGGER_DEFAULT_FORMAT LOGGER_COLOR_RESET
+#define LOGGER_DEBUG_FORMAT LOGGER_COLOR_GREEN_FG "{level:%-6s}" LOGGER_DEFAULT_FORMAT LOGGER_COLOR_RESET
+// #endif
+
 namespace blet {
 
-Logger::Logger() :
-    name(""),
+struct Logger::DebugPerf {
+    DebugPerf(const char* name_) :
+    name(name_),
+    messageCount(0),
+    messagePrinted(0) {
+        clock_gettime(CLOCK_MONOTONIC, &startTime);
+    }
+    ~DebugPerf() {
+        ::timespec endTs;
+        clock_gettime(CLOCK_MONOTONIC, &endTs);
+        if ((endTs.tv_nsec - startTime.tv_nsec) < 0) {
+            endTs.tv_nsec = 1000000000 + (endTs.tv_nsec - startTime.tv_nsec);
+            endTs.tv_sec -= 1;
+        }
+        else {
+            endTs.tv_nsec = endTs.tv_nsec - startTime.tv_nsec;
+        }
+        fprintf(stderr, "LOGGER_PERF %s:\n", name.c_str());
+        fprintf(stderr, "- Time: %ld.%09ld\n", (endTs.tv_sec - startTime.tv_sec), endTs.tv_nsec);
+        fprintf(stderr, "- Message counted: %u\n", messageCount);
+        fprintf(stderr, "- Message printed: %u\n", messagePrinted);
+        fprintf(stderr, "- Message lost: %u\n", messageCount - messagePrinted);
+        fprintf(stderr, "- Message rate: %f\n", messagePrinted / ((endTs.tv_sec - startTime.tv_sec) * 1000000000.0 + endTs.tv_nsec) * 1000000000);
+        fflush(stderr);
+    }
+    std::string name;
+    ::timespec startTime;
+    volatile unsigned int messageCount;
+    volatile unsigned int messagePrinted;
+};
+
+Logger::Logger(const char* name_) :
+    name(name_),
     _isStarted(true),
     _currentMessageId(0),
-    _messages(new Message[LOGGER_QUEUE_SIZE]),
-    _messagesSwap(new Message[LOGGER_QUEUE_SIZE]) {
+    _levelFilter((1<<1)|(1<<2)|(1<<3)|(1<<4)|(1<<5)|(1<<6)|(1<<7)),
+    _messages(new Message[LOGGER_QUEUE_SIZE + LOGGER_MAX_CONCURENCY_NB]),
+    _messagesSwap(new Message[LOGGER_QUEUE_SIZE + LOGGER_MAX_CONCURENCY_NB]),
+    _formats(new Format[DEBUG + 1]),
+    _perf(NULL) {
     // default file
     _pfile = stdout;
     // default format
-    setAllFormat(LOGGER_DEFAULT_FORMAT);
+    // setAllFormat(LOGGER_DEFAULT_FORMAT);
+    setTypeFormat(EMERGENCY, LOGGER_EMERGENCY_FORMAT);
+    setTypeFormat(ALERT, LOGGER_ALERT_FORMAT);
+    setTypeFormat(CRITICAL, LOGGER_CRITICAL_FORMAT);
+    setTypeFormat(ERROR, LOGGER_ERROR_FORMAT);
+    setTypeFormat(WARNING, LOGGER_WARNING_FORMAT);
+    setTypeFormat(NOTICE, LOGGER_NOTICE_FORMAT);
+    setTypeFormat(INFO, LOGGER_INFO_FORMAT);
+    setTypeFormat(DEBUG, LOGGER_DEBUG_FORMAT);
     // init thread
     if (pthread_mutex_init(&_logMutex, NULL)) {
         throw Exception("pthread_mutex_init: ", strerror(errno));
@@ -69,9 +144,7 @@ Logger::Logger() :
     }
 
 #ifdef LOGGER_PERF_DEBUG
-    clock_gettime(CLOCK_MONOTONIC, &_startTs);
-    _messageCount = 0;
-    _messagePrinted = 0;
+    _perf = new DebugPerf(name.c_str());
 #endif
 }
 
@@ -80,26 +153,15 @@ Logger::~Logger() {
     // unlock thread
     sem_post(&_queueSemaphore);
     pthread_join(_threadLogId, NULL);
+    sem_close(&_queueSemaphore);
+    pthread_mutex_destroy(&_logMutex);
     // delete messageQueue
     delete[] _messages;
     delete[] _messagesSwap;
+    delete[] _formats;
 
 #ifdef LOGGER_PERF_DEBUG
-    timespec endTs;
-    clock_gettime(CLOCK_MONOTONIC, &endTs);
-    if ((endTs.tv_nsec - _startTs.tv_nsec) < 0) {
-        endTs.tv_nsec = 1000000000 + (endTs.tv_nsec - _startTs.tv_nsec);
-        endTs.tv_sec -= 1;
-    }
-    else {
-        endTs.tv_nsec = endTs.tv_nsec - _startTs.tv_nsec;
-    }
-    fprintf(stderr, "LOGGER_PERF %s:\n", name.c_str());
-    fprintf(stderr, "- Time: %ld.%09ld\n", (endTs.tv_sec - _startTs.tv_sec), endTs.tv_nsec);
-    fprintf(stderr, "- Message counted: %u\n", _messageCount);
-    fprintf(stderr, "- Message printed: %u\n", _messagePrinted);
-    fprintf(stderr, "- Message rate: %f\n", _messagePrinted / ((endTs.tv_sec - _startTs.tv_sec) * 1000000000.0 + endTs.tv_nsec) * 1000000000);
-    fflush(stderr);
+    delete _perf;
 #endif
 }
 
@@ -124,65 +186,48 @@ void* Logger::_threadLogger(void* e) {
 }
 
 void Logger::printMessage(Logger::Message& message) const {
-    static char ftime[128];
+    static const char* levelToStr[] = {
+        "EMERG",
+        "ALERT",
+        "CRIT",
+        "ERROR",
+        "WARN",
+        "NOTICE",
+        "INFO",
+        "DEBUG"
+    };
+    char ftime[128];
 
-    const char* strLevel = NULL;
-    const Format* format = &_format;
-    switch (message.level) {
-        case EMERGENCY:
-            strLevel = "EMERG";
-            format = &_emergencyFormat;
-            break;
-        case ALERT:
-            strLevel = "ALERT";
-            format = &_alertFormat;
-            break;
-        case CRITICAL:
-            strLevel = "CRIT";
-            format = &_criticalFormat;
-            break;
-        case ERROR:
-            strLevel = "ERROR";
-            format = &_errorFormat;
-            break;
-        case WARNING:
-            strLevel = "WARN";
-            format = &_warningFormat;
-            break;
-        case NOTICE:
-            strLevel = "NOTICE";
-            format = &_noticeFormat;
-            break;
-        case INFO:
-            strLevel = "INFO";
-            format = &_infoFormat;
-            break;
-        case DEBUG:
-            strLevel = "DEBUG";
-            format = &_debugFormat;
-            break;
+    const Format* format = &_formats[message.level];
+
+    if (format->time.empty()) {
+        ftime[0] = '\0';
     }
-
-    if (format->hasTime) {
+    else {
         struct tm t;
         localtime_r(&(message.ts.tv_sec), &t);
         strftime(ftime, 128, format->time.c_str(), &t);
     }
-    else {
-        ftime[0] = '\0';
-    }
 
-    fprintf(_pfile, format->str.c_str(),
+    const char* formatStr = NULL;
+    if (message.file) {
+        formatStr = format->str.c_str();
+    }
+    else {
+        formatStr = format->strWOInfo.c_str();
+    }
+    fprintf(_pfile, formatStr,
             name.c_str(),
-            strLevel,
+            levelToStr[message.level],
             message.file,
             message.filename,
             message.line,
             message.function,
             format->pid,
             ftime,
+            message.ts.tv_nsec / format->nsecDivisor,
             message.message,
-            message.ts.tv_nsec / format->nsecDivisor);
+            format->threadId);
 }
 
 void Logger::_threadLog() {
@@ -211,7 +256,7 @@ void Logger::_threadLog() {
         for (unsigned int i = 0; i < lastMessageId; ++i) {
             printMessage(_messagesSwap[i]);
 #ifdef LOGGER_PERF_DEBUG
-            ++_messagePrinted;
+            ++_perf->messagePrinted;
 #endif
         }
 
@@ -258,52 +303,104 @@ static void s_formatDeserialize(std::string& str) {
     }
 }
 
-Logger::Format Logger::_formatContructor(const char* str) {
-    // initialize default format
-    std::map<std::string, std::string> emptyFormats;
-    emptyFormats["name"] = "%1$.0s";
-    emptyFormats["level"] = "%2$.0s";
-    emptyFormats["path"] = "%3$.0s";
-    emptyFormats["file"] = "%4$.0s";
-    emptyFormats["line"] = "%5$.0s";
-    emptyFormats["func"] = "%6$.0s";
-    emptyFormats["pid"] = "%7$.0s";
-    emptyFormats["time"] = "%8$.0s";
-    emptyFormats["message"] = "%9$.0s";
-    emptyFormats["decimal"] = "%10$.0s";
-    std::map<std::string, std::string> defaultFormats;
-    defaultFormats["name"] = "%1$s";
-    defaultFormats["level"] = "%2$s";
-    defaultFormats["path"] = "%3$s";
-    defaultFormats["file"] = "%4$s";
-    defaultFormats["line"] = "%5$d";
-    defaultFormats["func"] = "%6$s";
-    defaultFormats["pid"] = "%7$d";
-    defaultFormats["time"] = "%8$s";
-    defaultFormats["message"] = "%9$s";
-    defaultFormats["microsec"] = "%10$d";
-    defaultFormats["millisec"] = "%10$d";
-    defaultFormats["nanosec"] = "%10$d";
-    std::map<std::string, std::string> keyToid;
-    keyToid["name"] = "1$";
-    keyToid["level"] = "2$";
-    keyToid["path"] = "3$";
-    keyToid["file"] = "4$";
-    keyToid["line"] = "5$";
-    keyToid["func"] = "6$";
-    keyToid["pid"] = "7$";
-    keyToid["time"] = "8$";
-    keyToid["message"] = "9$";
-    keyToid["microsec"] = "10$";
-    keyToid["millisec"] = "10$";
-    keyToid["nanosec"] = "10$";
+static void s_formatInsertId(std::string& format, int formatId) {
+    static const char* idToStr[] = {
+        "",
+        "1$",
+        "2$",
+        "3$",
+        "4$",
+        "5$",
+        "6$",
+        "7$",
+        "8$",
+        "9$",
+        "10$",
+        "11$"
+    };
+    std::size_t percentPos = format.find('%');
+    if (percentPos != format.npos) {
+        format.insert(percentPos + 1, idToStr[formatId]);
+    }
+}
 
+static int s_getDecimalDivisor(const std::string& format) {
+    static const std::pair<std::string, int> keyToDivisorPairs[] = {
+        std::pair<std::string, int>("%d", 1),
+        std::pair<std::string, int>("%i", 1),
+        std::pair<std::string, int>("%1d", 100000000),
+        std::pair<std::string, int>("%1i", 100000000),
+        std::pair<std::string, int>("%01d", 100000000),
+        std::pair<std::string, int>("%01i", 100000000),
+        std::pair<std::string, int>("%2d", 10000000),
+        std::pair<std::string, int>("%2i", 10000000),
+        std::pair<std::string, int>("%02d", 10000000),
+        std::pair<std::string, int>("%02i", 10000000),
+        std::pair<std::string, int>("%3d", 1000000),
+        std::pair<std::string, int>("%3i", 1000000),
+        std::pair<std::string, int>("%03d", 1000000),
+        std::pair<std::string, int>("%03i", 1000000),
+        std::pair<std::string, int>("%4d", 100000),
+        std::pair<std::string, int>("%4i", 100000),
+        std::pair<std::string, int>("%04d", 100000),
+        std::pair<std::string, int>("%04i", 100000),
+        std::pair<std::string, int>("%5d", 10000),
+        std::pair<std::string, int>("%5i", 10000),
+        std::pair<std::string, int>("%05d", 10000),
+        std::pair<std::string, int>("%05i", 10000),
+        std::pair<std::string, int>("%6d", 1000),
+        std::pair<std::string, int>("%6i", 1000),
+        std::pair<std::string, int>("%06d", 1000),
+        std::pair<std::string, int>("%06i", 1000),
+        std::pair<std::string, int>("%7d", 100),
+        std::pair<std::string, int>("%7i", 100),
+        std::pair<std::string, int>("%07d", 100),
+        std::pair<std::string, int>("%07i", 100),
+        std::pair<std::string, int>("%8d", 10),
+        std::pair<std::string, int>("%8i", 10),
+        std::pair<std::string, int>("%08d", 10),
+        std::pair<std::string, int>("%08i", 10),
+        std::pair<std::string, int>("%9d", 1),
+        std::pair<std::string, int>("%9i", 1),
+        std::pair<std::string, int>("%09d", 1),
+        std::pair<std::string, int>("%09i", 1)
+    };
+    static const std::map<std::string, int> keyToDivisor(
+        keyToDivisorPairs, keyToDivisorPairs + sizeof(keyToDivisorPairs) / sizeof(*keyToDivisorPairs));
+
+    std::map<std::string, int>::const_iterator cit = keyToDivisor.find(format);
+    if (cit == keyToDivisor.end()) {
+        return 1;
+    }
+    return cit->second;
+}
+
+Logger::Format Logger::_formatContructor(const char* str) {
+    static const std::pair<eFormat, const char*> idToEmptyPairs[] = {
+        std::pair<eFormat, const char*>(NAME_FORMAT, "%1$.0s"),
+        std::pair<eFormat, const char*>(LEVEL_FORMAT, "%2$.0s"),
+        std::pair<eFormat, const char*>(PATH_FORMAT, "%3$.0s"),
+        std::pair<eFormat, const char*>(FILE_FORMAT, "%4$.0s"),
+        std::pair<eFormat, const char*>(LINE_FORMAT, "%5$.0s"),
+        std::pair<eFormat, const char*>(FUNC_FORMAT, "%6$.0s"),
+        std::pair<eFormat, const char*>(PID_FORMAT, "%7$.0s"),
+        std::pair<eFormat, const char*>(TIME_FORMAT, "%8$.0s"),
+        std::pair<eFormat, const char*>(DECIMAL_FORMAT, "%9$.0s"),
+        std::pair<eFormat, const char*>(MESSAGE_FORMAT, "%10$.0s"),
+        std::pair<eFormat, const char*>(TID_FORMAT, "%11$.0s")
+    };
+    // initialize empty format
+    std::map<eFormat, const char*> idToEmptyFormat(
+        idToEmptyPairs, idToEmptyPairs + sizeof(idToEmptyPairs) / sizeof(*idToEmptyPairs));
+    std::map<eFormat, const char*> idToEmptyFormatWOInfo(
+        idToEmptyPairs, idToEmptyPairs + sizeof(idToEmptyPairs) / sizeof(*idToEmptyPairs));
     Format ret;
     ret.origin = str;
     // transform "{:}" non escape characters
     std::string format(str);
     s_formatSerialize(format);
     std::list<std::string> formats;
+    std::list<std::string> formatsWOInfo;
     // search first occurence of '{'
     std::size_t lastIndexStart = 0;
     std::size_t indexStart = format.find(LOGGER_OPEN_BRACE);
@@ -320,69 +417,38 @@ Logger::Format Logger::_formatContructor(const char* str) {
             std::string beforeKey = format.substr(lastIndexStart, indexStart - lastIndexStart);
             s_formatDeserialize(beforeKey);
             formats.push_back(beforeKey);
+            formatsWOInfo.push_back(beforeKey);
         }
         lastIndexStart = indexEnd + 1;
         // search first occurrence of ':' after indexStart
         indexFormat = format.find(LOGGER_SEPARATOR, indexStart);
         // if ':' not found or ':' is not between '{' and '}'
         if (indexFormat == std::string::npos || indexFormat > indexEnd) {
-            // get name of key
+            // get name of key {[...]}
             std::string key = format.substr(indexStart + 1, indexEnd - indexStart - 1);
-            if (key == "name") {
-                formats.push_back(defaultFormats.at("name"));
-                emptyFormats.erase("name");
-            }
-            else if (key == "level") {
-                formats.push_back(defaultFormats.at("level"));
-                emptyFormats.erase("level");
-            }
-            else if (key == "path") {
-                formats.push_back(defaultFormats.at("path"));
-                emptyFormats.erase("path");
-            }
-            else if (key == "file") {
-                formats.push_back(defaultFormats.at("file"));
-                emptyFormats.erase("file");
-            }
-            else if (key == "line") {
-                ret.hasLine = true;
-                formats.push_back(defaultFormats.at("line"));
-                emptyFormats.erase("line");
-            }
-            else if (key == "func") {
-                formats.push_back(defaultFormats.at("func"));
-                emptyFormats.erase("func");
-            }
-            else if (key == "pid") {
-                ret.hasPid = true;
-                ret.pid = ::getpid();
-                formats.push_back(defaultFormats.at("pid"));
-                emptyFormats.erase("pid");
-            }
-            else if (key == "time") {
-                ret.hasTime = true;
-                ret.time = "%x %X";
-                formats.push_back(defaultFormats.at("time"));
-                emptyFormats.erase("time");
-            }
-            else if (key == "message") {
-                formats.push_back(defaultFormats.at("message"));
-                emptyFormats.erase("message");
-            }
-            else if (key == "microsec") {
-                formats.push_back(defaultFormats.at("microsec"));
-                emptyFormats.erase("decimal");
-                ret.nsecDivisor = 1000000;
-            }
-            else if (key == "millisec") {
-                formats.push_back(defaultFormats.at("millisec"));
-                emptyFormats.erase("decimal");
-                ret.nsecDivisor = 1000;
-            }
-            else if (key == "nanosec") {
-                formats.push_back(defaultFormats.at("nanosec"));
-                emptyFormats.erase("decimal");
-                ret.nsecDivisor = 1;
+            // get the id of key
+            eFormat formatId = _nameToEnumFormat(key);
+            if (formatId != UNKNOWN_FORMAT) {
+                switch (formatId) {
+                    case PID_FORMAT:
+                        ret.pid = ::getpid();
+                        break;
+                    case TIME_FORMAT:
+                        ret.time = "%x %X";
+                        break;
+                    case TID_FORMAT:
+                        ret.threadId = ::pthread_self();
+                        break;
+                    default:
+                        break;
+                }
+                formats.push_back(_idToDefaultFormat(formatId));
+                if (formatId != PATH_FORMAT && formatId != FILE_FORMAT &&
+                    formatId != LINE_FORMAT && formatId != FUNC_FORMAT) {
+                    formatsWOInfo.push_back(_idToDefaultFormat(formatId));
+                    idToEmptyFormatWOInfo.erase(formatId);
+                }
+                idToEmptyFormat.erase(formatId);
             }
             indexStart = format.find(LOGGER_OPEN_BRACE, indexStart + 1);
             // find other key
@@ -395,75 +461,34 @@ Logger::Format Logger::_formatContructor(const char* str) {
             std::string formatKey = format.substr(indexFormat + 1, indexEnd - indexFormat - 1);
             // replace no print character by real
             s_formatDeserialize(formatKey);
-            if (key == "name") {
-                formatKey.insert(formatKey.find('%') + 1, keyToid.at("name"));
+            // get the id of key
+            eFormat formatId = _nameToEnumFormat(key);
+            if (formatId != UNKNOWN_FORMAT) {
+                switch (formatId) {
+                    case PID_FORMAT:
+                        ret.pid = ::getpid();
+                        break;
+                    case TID_FORMAT:
+                        ret.threadId = ::pthread_self();
+                        break;
+                    case TIME_FORMAT:
+                        ret.time = formatKey;
+                        formatKey = "%s";
+                        break;
+                    case DECIMAL_FORMAT:
+                        ret.nsecDivisor = s_getDecimalDivisor(formatKey);
+                        break;
+                    default:
+                        break;
+                }
+                s_formatInsertId(formatKey, formatId);
                 formats.push_back(formatKey);
-                emptyFormats.erase("name");
-            }
-            else if (key == "level") {
-                formatKey.insert(formatKey.find('%') + 1, keyToid.at("level"));
-                formats.push_back(formatKey);
-                emptyFormats.erase("level");
-            }
-            else if (key == "path") {
-                formatKey.insert(formatKey.find('%') + 1, keyToid.at("path"));
-                formats.push_back(formatKey);
-                emptyFormats.erase("path");
-            }
-            else if (key == "file") {
-                formatKey.insert(formatKey.find('%') + 1, keyToid.at("file"));
-                formats.push_back(formatKey);
-                emptyFormats.erase("file");
-            }
-            else if (key == "line") {
-                ret.hasLine = true;
-                formatKey.insert(formatKey.find('%') + 1, keyToid.at("line"));
-                formats.push_back(formatKey);
-                emptyFormats.erase("line");
-            }
-            else if (key == "func") {
-                formatKey.insert(formatKey.find('%') + 1, keyToid.at("func"));
-                formats.push_back(formatKey);
-                emptyFormats.erase("func");
-            }
-            else if (key == "pid") {
-                ret.hasPid = true;
-                ret.pid = ::getpid();
-                formatKey.insert(formatKey.find('%') + 1, keyToid.at("pid"));
-                formats.push_back(formatKey);
-                emptyFormats.erase("pid");
-            }
-            else if (key == "time") {
-                ret.hasTime = true;
-                ret.time = formatKey;
-                formats.push_back("%" + keyToid.at("time") + "s");
-                emptyFormats.erase("time");
-            }
-            else if (key == "message") {
-                formatKey.insert(formatKey.find('%') + 1, keyToid.at("message"));
-                formats.push_back(formatKey);
-                emptyFormats.erase("message");
-            }
-            else if (key == "microsec") {
-                ret.hasMicroSec = true;
-                formatKey.insert(formatKey.find('%') + 1, keyToid.at("microsec"));
-                formats.push_back(formatKey);
-                emptyFormats.erase("decimal");
-                ret.nsecDivisor = 1000000;
-            }
-            else if (key == "millisec") {
-                ret.hasMilliSec = true;
-                formatKey.insert(formatKey.find('%') + 1, keyToid.at("millisec"));
-                formats.push_back(formatKey);
-                emptyFormats.erase("decimal");
-                ret.nsecDivisor = 1000;
-            }
-            else if (key == "nanosec") {
-                ret.hasNanoSec = true;
-                formatKey.insert(formatKey.find('%') + 1, keyToid.at("nanosec"));
-                formats.push_back(formatKey);
-                emptyFormats.erase("decimal");
-                ret.nsecDivisor = 1;
+                if (formatId != PATH_FORMAT && formatId != FILE_FORMAT &&
+                    formatId != LINE_FORMAT && formatId != FUNC_FORMAT) {
+                    formatsWOInfo.push_back(formatKey);
+                    idToEmptyFormatWOInfo.erase(formatId);
+                }
+                idToEmptyFormat.erase(formatId);
             }
             // parse other key
             indexStart = format.find(LOGGER_OPEN_BRACE, indexStart + 1);
@@ -475,79 +500,80 @@ Logger::Format Logger::_formatContructor(const char* str) {
         std::string lastFormat = format.substr(lastIndexStart, format.size() - lastIndexStart);
         s_formatDeserialize(lastFormat);
         formats.push_back(lastFormat);
+        formatsWOInfo.push_back(lastFormat);
     }
 
-    {
-        std::map<std::string, std::string>::const_iterator cit;
-        for (cit = emptyFormats.begin(); cit != emptyFormats.end(); ++cit) {
-            ret.str.append(cit->second);
-        }
-    }
     {
         std::list<std::string>::const_iterator cit;
         for (cit = formats.begin(); cit != formats.end(); ++cit) {
             ret.str.append(*cit);
         }
     }
+    {
+        std::map<eFormat, const char*>::const_iterator cit;
+        for (cit = idToEmptyFormat.begin(); cit != idToEmptyFormat.end(); ++cit) {
+            ret.str.append(cit->second);
+        }
+    }
+    {
+        std::list<std::string>::const_iterator cit;
+        for (cit = formatsWOInfo.begin(); cit != formatsWOInfo.end(); ++cit) {
+            ret.strWOInfo.append(*cit);
+        }
+    }
+    {
+        std::map<eFormat, const char*>::const_iterator cit;
+        for (cit = idToEmptyFormatWOInfo.begin(); cit != idToEmptyFormatWOInfo.end(); ++cit) {
+            ret.strWOInfo.append(cit->second);
+        }
+    }
     ret.str.append("\n");
+    ret.strWOInfo.append("\n");
     return ret;
 }
 
 void Logger::setTypeFormat(const eLevel& level, const char* format) {
-    switch (level) {
-        case EMERGENCY:
-            _emergencyFormat = _formatContructor(format);
-            break;
-        case ALERT:
-            _alertFormat = _formatContructor(format);
-            break;
-        case CRITICAL:
-            _criticalFormat = _formatContructor(format);
-            break;
-        case ERROR:
-            _errorFormat = _formatContructor(format);
-            break;
-        case WARNING:
-            _warningFormat = _formatContructor(format);
-            break;
-        case NOTICE:
-            _noticeFormat = _formatContructor(format);
-            break;
-        case INFO:
-            _infoFormat = _formatContructor(format);
-            break;
-        case DEBUG:
-            _debugFormat = _formatContructor(format);
-            break;
-    }
+    pthread_mutex_lock(&_logMutex);
+    _formats[level] = _formatContructor(format);
+    pthread_mutex_unlock(&_logMutex);
 }
 
 void Logger::setAllFormat(const char* format) {
-    _format = _formatContructor(format);
-    _emergencyFormat = _format;
-    _alertFormat = _format;
-    _criticalFormat = _format;
-    _errorFormat = _format;
-    _warningFormat = _format;
-    _noticeFormat = _format;
-    _infoFormat = _format;
-    _debugFormat = _format;
-    std::cerr << _format.str << std::endl;
+    pthread_mutex_lock(&_logMutex);
+    for (int i = 0; i < DEBUG + 1; ++i) {
+        _formats[i] = _formatContructor(format);
+    }
+    pthread_mutex_unlock(&_logMutex);
 }
 
 void Logger::setFILE(FILE* file) {
     _pfile = file;
 }
 
-void Logger::asyncLog(eLevel level, const char* file, const char* filename, int line, const char* function,
+void Logger::macroAsyncLog(eLevel level, const char* file, const char* filename, int line, const char* function,
                     const char* format, ...) {
     pthread_mutex_lock(&_logMutex);
-#ifdef LOGGER_ASYNC_WAIT_PRINT
-    if (_currentMessageId >= LOGGER_QUEUE_SIZE - LOGGER_MAX_LOG_THREAD_NB) {
+#if LOGGER_ASYNC_WAIT_PRINT == 1
+    if (_currentMessageId >= LOGGER_QUEUE_SIZE) {
         // wait end of print
         pthread_cond_wait(&_condLog, &_logMutex);
+        // std::cerr << _currentMessageId << std::endl;
+        // int semValue = LOGGER_QUEUE_SIZE - LOGGER_MAX_LOG_CONCURRENCY_NB;
+        // while (_isStarted && semValue >= LOGGER_QUEUE_SIZE - LOGGER_MAX_LOG_CONCURRENCY_NB) {
+        //     pthread_mutex_lock(&_logMutex);
+        //     sem_getvalue(&_queueSemaphore, &semValue);
+        //     if (semValue == 0) {
+        //         sem_post(&_queueSemaphore);
+        //     }
+        //     pthread_cond_wait(&_condLog, &_logMutex);
+        //     pthread_mutex_unlock(&_logMutex);
+        // }
     }
 #endif
+
+    if (_currentMessageId == 0) {
+        sem_post(&_queueSemaphore);
+    }
 
     // create a new message
     _messages[_currentMessageId].level = level;
@@ -563,6 +589,46 @@ void Logger::asyncLog(eLevel level, const char* file, const char* filename, int 
     va_start(vargs, format);
     ::vsnprintf(_messages[_currentMessageId].message, LOGGER_MESSAGE_MAX_SIZE, format, vargs);
     va_end(vargs);
+    // move index
+    ++_currentMessageId;
+#ifndef LOGGER_ASYNC_WAIT_PRINT
+    _currentMessageId = _currentMessageId % LOGGER_QUEUE_SIZE;
+#endif
+
+#ifdef LOGGER_PERF_DEBUG
+    ++_perf->messageCount;
+#endif
+
+    pthread_mutex_unlock(&_logMutex);
+}
+
+void Logger::asyncLog(eLevel level, const char* format, ...) {
+    pthread_mutex_lock(&_logMutex);
+#ifdef LOGGER_ASYNC_WAIT_PRINT
+    if (_currentMessageId >= LOGGER_QUEUE_SIZE) {
+        // wait end of print
+        pthread_cond_wait(&_condLog, &_logMutex);
+    }
+#endif
+
+    if (_currentMessageId == 0) {
+        sem_post(&_queueSemaphore);
+    }
+
+    // create a new message
+    _messages[_currentMessageId].level = level;
+    _messages[_currentMessageId].file = NULL;
+    _messages[_currentMessageId].filename = NULL;
+    _messages[_currentMessageId].line = 0;
+    _messages[_currentMessageId].function = NULL;
+
+    clock_gettime(CLOCK_REALTIME, &_messages[_currentMessageId].ts);
+
+    // copy formated message
+    va_list vargs;
+    va_start(vargs, format);
+    ::vsnprintf(_messages[_currentMessageId].message, LOGGER_MESSAGE_MAX_SIZE, format, vargs);
+    va_end(vargs);
 
     // move index
     ++_currentMessageId;
@@ -570,16 +636,14 @@ void Logger::asyncLog(eLevel level, const char* file, const char* filename, int 
     _currentMessageId = _currentMessageId % LOGGER_QUEUE_SIZE;
 #endif
 
-    sem_post(&_queueSemaphore);
-
 #ifdef LOGGER_PERF_DEBUG
-    ++_messageCount;
+    ++_perf->messageCount;
 #endif
 
     pthread_mutex_unlock(&_logMutex);
 }
 
-void Logger::log(eLevel level, const char* file, const char* filename, int line, const char* function,
+void Logger::macroLog(eLevel level, const char* file, const char* filename, int line, const char* function,
                const char* format, ...) {
     Message message;
 
@@ -598,10 +662,162 @@ void Logger::log(eLevel level, const char* file, const char* filename, int line,
     va_end(vargs);
 
 #ifdef LOGGER_PERF_DEBUG
-    ++_messageCount;
-    ++_messagePrinted;
+    ++_perf->messageCount;
+    ++_perf->messagePrinted;
 #endif
     printMessage(message);
+}
+
+void Logger::log(eLevel level, const char* format, ...) {
+    Message message;
+
+    // create a new message
+    message.level = level;
+    message.file = NULL;
+    message.filename = NULL;
+    message.line = 0;
+    message.function = NULL;
+    clock_gettime(CLOCK_REALTIME, &message.ts);
+
+    // copy formated message
+    va_list vargs;
+    va_start(vargs, format);
+    ::vsnprintf(message.message, LOGGER_MESSAGE_MAX_SIZE, format, vargs);
+    va_end(vargs);
+
+#ifdef LOGGER_PERF_DEBUG
+    ++_perf->messageCount;
+    ++_perf->messagePrinted;
+#endif
+    printMessage(message);
+}
+
+void Logger::format(const char* format, ...) {
+    pthread_mutex_lock(&_logMutex);
+#ifdef LOGGER_ASYNC_WAIT_PRINT
+    if (_currentMessageId >= LOGGER_QUEUE_SIZE) {
+        // wait end of print
+        pthread_cond_wait(&_condLog, &_logMutex);
+    }
+#endif
+
+    if (_currentMessageId == 0) {
+        sem_post(&_queueSemaphore);
+    }
+
+    clock_gettime(CLOCK_REALTIME, &_messages[_currentMessageId].ts);
+
+    // copy formated message
+    va_list vargs;
+    va_start(vargs, format);
+    ::vsnprintf(_messages[_currentMessageId].message, LOGGER_MESSAGE_MAX_SIZE, format, vargs);
+    va_end(vargs);
+}
+
+void Logger::logFmt(eLevel level, const char* file, const char* filename, int line, const char* function) {
+
+    // create a new message
+    _messages[_currentMessageId].level = level;
+    _messages[_currentMessageId].file = file;
+    _messages[_currentMessageId].filename = filename;
+    _messages[_currentMessageId].line = line;
+    _messages[_currentMessageId].function = function;
+
+    // move index
+    ++_currentMessageId;
+#ifndef LOGGER_ASYNC_WAIT_PRINT
+    _currentMessageId = _currentMessageId % LOGGER_QUEUE_SIZE;
+#endif
+
+#ifdef LOGGER_PERF_DEBUG
+    ++_perf->messageCount;
+#endif
+
+    pthread_mutex_unlock(&_logMutex);
+}
+
+void Logger::logStream(eLevel level, const char* file, const char* filename, int line, const char* function, const ::std::ostringstream& oss) {
+    pthread_mutex_lock(&_logMutex);
+#ifdef LOGGER_ASYNC_WAIT_PRINT
+    if (_currentMessageId >= LOGGER_QUEUE_SIZE) {
+        // wait end of print
+        pthread_cond_wait(&_condLog, &_logMutex);
+    }
+#endif
+
+    if (_currentMessageId == 0) {
+        sem_post(&_queueSemaphore);
+    }
+
+    clock_gettime(CLOCK_REALTIME, &_messages[_currentMessageId].ts);
+
+    std::string strMessage = oss.str();
+    unsigned int cpySize = LOGGER_MESSAGE_MAX_SIZE < strMessage.size() ? LOGGER_MESSAGE_MAX_SIZE : strMessage.size();
+    ::memcpy(_messages[_currentMessageId].message, strMessage.c_str(), cpySize);
+    if (cpySize == LOGGER_MESSAGE_MAX_SIZE) {
+        _messages[_currentMessageId].message[LOGGER_MESSAGE_MAX_SIZE - 1] = '\0';
+    }
+
+    // create a new message
+    _messages[_currentMessageId].level = level;
+    _messages[_currentMessageId].file = file;
+    _messages[_currentMessageId].filename = filename;
+    _messages[_currentMessageId].line = line;
+    _messages[_currentMessageId].function = function;
+
+    // move index
+    ++_currentMessageId;
+#ifndef LOGGER_ASYNC_WAIT_PRINT
+    _currentMessageId = _currentMessageId % LOGGER_QUEUE_SIZE;
+#endif
+
+#ifdef LOGGER_PERF_DEBUG
+    ++_perf->messageCount;
+#endif
+
+    pthread_mutex_unlock(&_logMutex);
+}
+
+Logger::eFormat Logger::_nameToEnumFormat(const std::string& name) {
+    static const std::pair<std::string, eFormat> nameToFormatPairs[] = {
+        std::pair<std::string, eFormat>("name", NAME_FORMAT),
+        std::pair<std::string, eFormat>("level", LEVEL_FORMAT),
+        std::pair<std::string, eFormat>("path", PATH_FORMAT),
+        std::pair<std::string, eFormat>("file", FILE_FORMAT),
+        std::pair<std::string, eFormat>("line", LINE_FORMAT),
+        std::pair<std::string, eFormat>("func", FUNC_FORMAT),
+        std::pair<std::string, eFormat>("pid", PID_FORMAT),
+        std::pair<std::string, eFormat>("time", TIME_FORMAT),
+        std::pair<std::string, eFormat>("decimal", DECIMAL_FORMAT),
+        std::pair<std::string, eFormat>("message", MESSAGE_FORMAT),
+        std::pair<std::string, eFormat>("tid", TID_FORMAT)
+    };
+    static const std::map<std::string, eFormat> nameToEnumFormat(
+        nameToFormatPairs, nameToFormatPairs + sizeof(nameToFormatPairs) / sizeof(*nameToFormatPairs));
+
+    std::map<std::string, eFormat>::const_iterator cit = nameToEnumFormat.find(name);
+    if (cit == nameToEnumFormat.end()) {
+        return UNKNOWN_FORMAT;
+    }
+    return cit->second;
+}
+
+const char* Logger::_idToDefaultFormat(const eFormat& id) {
+    static const char* idToDefaultFormat[] = {
+        "unknown",
+        "%1$s", // name
+        "%2$s", // level
+        "%3$s", // path
+        "%4$s", // file
+        "%5$d", // line
+        "%6$s", // func
+        "%7$d", // pid
+        "%8$s", // time
+        "%9$d", // decimal
+        "%10$s", // message
+        "%11$d" // threadid
+    };
+    return idToDefaultFormat[id];
 }
 
 } // namespace blet
@@ -609,3 +825,5 @@ void Logger::log(eLevel level, const char* file, const char* filename, int line,
 #undef LOGGER_CLOSE_BRACE
 #undef LOGGER_SEPARATOR
 #undef LOGGER_OPEN_BRACE
+
+// "%3$.0s%6$.0s[%7$d] %8$s.%9$03d: %1$-10s:%2$-6s: %4$25s:%5$3d %10$s\n"

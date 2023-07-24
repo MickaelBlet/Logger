@@ -32,10 +32,11 @@ set_target_properties("${PROJECT_NAME}"
         CXX_STANDARD_REQUIRED ON
         CXX_EXTENSIONS OFF
         NO_SYSTEM_FROM_IMPORTED ON
-        COMPILE_FLAGS "-Wall -Wextra -Werror"
+        COMPILE_FLAGS "-O3 -pedantic -pthread -Wall -Wextra -Werror"
         INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/include"
         INTERFACE_INCLUDE_DIRECTORIES "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>;$<INSTALL_INTERFACE:include>"
         LINK_LIBRARIES "pthread"
+        COMPILE_DEFINITIONS "LOGGER_PERF_DEBUG=10"
 )
 
 # install
