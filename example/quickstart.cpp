@@ -1,6 +1,6 @@
 #include "blet/logger.h"
 
-#define NB_THREAD 2
+#define NB_THREAD 5
 
 unsigned int nbThread = 0;
 
@@ -15,7 +15,7 @@ void *threadLog(void*e) {
 int main(int argc, char** argv) {
     (void)argc;
     (void)argv;
-    blet::Logger::getMain().setAllFormat("{time}.{decimal}: {message}");
+    blet::Logger::getMain().setAllFormat("{decimal}: {message}");
     // blet::Logger::getMain().disableLevel(::blet::Logger::DEBUG);
     pthread_t threadId[NB_THREAD];
     for (int i = 0; i < NB_THREAD; ++i) {

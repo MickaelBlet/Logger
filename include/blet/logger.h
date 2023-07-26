@@ -125,12 +125,8 @@
 #define LOGGER_ASYNC_WAIT_PRINT 0
 #endif
 
-#ifndef LOGGER_MAX_CONCURENCY_NB
-#define LOGGER_MAX_CONCURENCY_NB 32
-#endif
-
 #ifndef LOGGER_QUEUE_SIZE
-#define LOGGER_QUEUE_SIZE 256 - LOGGER_MAX_CONCURENCY_NB
+#define LOGGER_QUEUE_SIZE 256
 #endif
 
 #ifndef LOGGER_MESSAGE_MAX_SIZE
@@ -314,10 +310,12 @@ class Logger {
 
     bool _isStarted;
     pthread_mutex_t _logMutex;
+    pthread_mutex_t _logQueue;
     pthread_cond_t _condLog;
+    pthread_cond_t _condFlush;
     sem_t _queueSemaphore;
     pthread_t _threadLogId;
-    unsigned int _currentMessageId;
+    volatile unsigned int _currentMessageId;
     int _levelFilter;
 
     FILE* _pfile;

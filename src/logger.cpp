@@ -113,8 +113,8 @@ Logger::Logger(const char* name_) :
     _isStarted(true),
     _currentMessageId(0),
     _levelFilter((1<<1)|(1<<2)|(1<<3)|(1<<4)|(1<<5)|(1<<6)|(1<<7)),
-    _messages(new Message[LOGGER_QUEUE_SIZE + LOGGER_MAX_CONCURENCY_NB]),
-    _messagesSwap(new Message[LOGGER_QUEUE_SIZE + LOGGER_MAX_CONCURENCY_NB]),
+    _messages(new Message[LOGGER_QUEUE_SIZE]),
+    _messagesSwap(new Message[LOGGER_QUEUE_SIZE]),
     _formats(new Format[DEBUG + 1]),
     _perf(NULL) {
     // default file
@@ -133,7 +133,13 @@ Logger::Logger(const char* name_) :
     if (pthread_mutex_init(&_logMutex, NULL)) {
         throw Exception("pthread_mutex_init: ", strerror(errno));
     }
+    if (pthread_mutex_init(&_logQueue, NULL)) {
+        throw Exception("pthread_mutex_init: ", strerror(errno));
+    }
     if (pthread_cond_init(&_condLog, NULL)) {
+        throw Exception("pthread_cond_init: ", strerror(errno));
+    }
+    if (pthread_cond_init(&_condFlush, NULL)) {
         throw Exception("pthread_cond_init: ", strerror(errno));
     }
     if (sem_init(&_queueSemaphore, 0, 0)) {
@@ -167,15 +173,17 @@ Logger::~Logger() {
 
 void Logger::flush() {
     int semValue = 1;
+    pthread_mutex_lock(&_logMutex);
     while (_isStarted && semValue > 0) {
-        pthread_mutex_lock(&_logMutex);
         sem_getvalue(&_queueSemaphore, &semValue);
         if (semValue == 0) {
             sem_post(&_queueSemaphore);
         }
-        pthread_cond_wait(&_condLog, &_logMutex);
-        pthread_mutex_unlock(&_logMutex);
+        // std::cerr << "Flush Wait" << semValue << std::endl;
+        pthread_cond_wait(&_condFlush, &_logMutex);
+        // std::cerr << "Flush UnWait" << std::endl;
     }
+    pthread_mutex_unlock(&_logMutex);
     fflush(_pfile);
 }
 
@@ -236,10 +244,12 @@ void Logger::_threadLog() {
     while (_isStarted || semValue > 0) {
         sem_wait(&_queueSemaphore);
         pthread_mutex_lock(&_logMutex);
+        // std::cerr << "Locked: " << _currentMessageId << std::endl;
         if (_currentMessageId == 0) {
             sem_getvalue(&_queueSemaphore, &semValue);
+            pthread_cond_broadcast(&_condLog);
+            pthread_cond_broadcast(&_condFlush);
             pthread_mutex_unlock(&_logMutex);
-            pthread_cond_signal(&_condLog);
             continue;
         }
         // swap messages
@@ -250,7 +260,11 @@ void Logger::_threadLog() {
         lastMessageId = _currentMessageId;
         // reset current message id
         _currentMessageId = 0;
+        pthread_cond_broadcast(&_condLog);
+        // std::cerr << "Broadcasted: " << _currentMessageId << std::endl;
         pthread_mutex_unlock(&_logMutex);
+
+        // std::cerr << "lastId:" << lastMessageId << std::endl;
 
         // call print function
         for (unsigned int i = 0; i < lastMessageId; ++i) {
@@ -260,7 +274,7 @@ void Logger::_threadLog() {
 #endif
         }
 
-        pthread_cond_broadcast(&_condLog);
+        pthread_cond_broadcast(&_condFlush);
     }
 }
 
@@ -557,7 +571,7 @@ void Logger::macroAsyncLog(eLevel level, const char* file, const char* filename,
     if (_currentMessageId >= LOGGER_QUEUE_SIZE) {
         // wait end of print
         pthread_cond_wait(&_condLog, &_logMutex);
-        // std::cerr << _currentMessageId << std::endl;
+        // // std::cerr << _currentMessageId << std::endl;
         // int semValue = LOGGER_QUEUE_SIZE - LOGGER_MAX_LOG_CONCURRENCY_NB;
         // while (_isStarted && semValue >= LOGGER_QUEUE_SIZE - LOGGER_MAX_LOG_CONCURRENCY_NB) {
         //     pthread_mutex_lock(&_logMutex);
@@ -693,13 +707,22 @@ void Logger::log(eLevel level, const char* format, ...) {
 }
 
 void Logger::format(const char* format, ...) {
-    pthread_mutex_lock(&_logMutex);
+    pthread_mutex_lock(&_logQueue);
 #ifdef LOGGER_ASYNC_WAIT_PRINT
-    if (_currentMessageId >= LOGGER_QUEUE_SIZE) {
-        // wait end of print
-        pthread_cond_wait(&_condLog, &_logMutex);
+    if (_currentMessageId >= LOGGER_QUEUE_SIZE - 1) {
+        sem_post(&_queueSemaphore);
+        // std::cerr << "Log Wait" << std::endl;
+        while (_currentMessageId >= LOGGER_QUEUE_SIZE - 1) {
+            // wait end of print
+            pthread_cond_wait(&_condLog, &_logQueue);
+        }
+        // std::cerr << "Log UnWait" << std::endl;
+        // std::cerr << "Log CurrentId:" << _currentMessageId << std::endl;
     }
 #endif
+    // std::cerr << "Log Wait to Lock" <<  std::endl;
+    pthread_mutex_lock(&_logMutex);
+    // std::cerr << "Log Locked: " << _currentMessageId << std::endl;
 
     if (_currentMessageId == 0) {
         sem_post(&_queueSemaphore);
@@ -734,16 +757,26 @@ void Logger::logFmt(eLevel level, const char* file, const char* filename, int li
 #endif
 
     pthread_mutex_unlock(&_logMutex);
+    pthread_mutex_unlock(&_logQueue);
 }
 
 void Logger::logStream(eLevel level, const char* file, const char* filename, int line, const char* function, const ::std::ostringstream& oss) {
-    pthread_mutex_lock(&_logMutex);
+    pthread_mutex_lock(&_logQueue);
 #ifdef LOGGER_ASYNC_WAIT_PRINT
-    if (_currentMessageId >= LOGGER_QUEUE_SIZE) {
-        // wait end of print
-        pthread_cond_wait(&_condLog, &_logMutex);
+    if (_currentMessageId >= LOGGER_QUEUE_SIZE - 1) {
+        sem_post(&_queueSemaphore);
+        // std::cerr << "Log Wait" << std::endl;
+        while (_currentMessageId >= LOGGER_QUEUE_SIZE - 1) {
+            // wait end of print
+            pthread_cond_wait(&_condLog, &_logQueue);
+        }
+        // std::cerr << "Log UnWait" << std::endl;
+        // std::cerr << "Log CurrentId:" << _currentMessageId << std::endl;
     }
 #endif
+    // std::cerr << "Log Wait to Lock" <<  std::endl;
+    pthread_mutex_lock(&_logMutex);
+    // std::cerr << "Log Locked: " << _currentMessageId << std::endl;
 
     if (_currentMessageId == 0) {
         sem_post(&_queueSemaphore);
@@ -752,7 +785,7 @@ void Logger::logStream(eLevel level, const char* file, const char* filename, int
     clock_gettime(CLOCK_REALTIME, &_messages[_currentMessageId].ts);
 
     std::string strMessage = oss.str();
-    unsigned int cpySize = LOGGER_MESSAGE_MAX_SIZE < strMessage.size() ? LOGGER_MESSAGE_MAX_SIZE : strMessage.size();
+    unsigned int cpySize = LOGGER_MESSAGE_MAX_SIZE < strMessage.size() ? LOGGER_MESSAGE_MAX_SIZE : strMessage.size() + 1;
     ::memcpy(_messages[_currentMessageId].message, strMessage.c_str(), cpySize);
     if (cpySize == LOGGER_MESSAGE_MAX_SIZE) {
         _messages[_currentMessageId].message[LOGGER_MESSAGE_MAX_SIZE - 1] = '\0';
@@ -776,6 +809,7 @@ void Logger::logStream(eLevel level, const char* file, const char* filename, int
 #endif
 
     pthread_mutex_unlock(&_logMutex);
+    pthread_mutex_unlock(&_logQueue);
 }
 
 Logger::eFormat Logger::_nameToEnumFormat(const std::string& name) {
