@@ -6,6 +6,7 @@
     ],
     "sources": [
         "include/blet/logger.h",
-        "src/logger.cpp"
+        "src/logger.cpp",
+        "src/logger/format.cpp"
     ]
 }

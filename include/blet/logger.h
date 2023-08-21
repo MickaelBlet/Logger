@@ -28,15 +28,17 @@
 
 #include <pthread.h>
 #include <semaphore.h>
+#include <stdio.h>
 #include <string.h>
 #include <syslog.h>
 #include <time.h>
-#include <stdio.h>
 
-#include <sstream>
 #include <exception>
-#include <string>
 #include <map>
+#include <sstream>
+#include <string>
+
+#include "logger/format.h"
 
 #if defined _WIN32 || defined _WIN64 || defined __CYGWIN__
 #define _LOGGER_SEPARATOR_PATH '\\'
@@ -63,9 +65,13 @@
 
 #ifdef LOGGER_VARIDIC_MACRO
 
-#define _LOGGER_LOG_FMT(logger, level, ...) \
-    logger.format(##__VA_ARGS__); \
-    logger.logFmt(level, _LOGGER_FILE_INFOS)
+#define _LOGGER_LOG_FMT(logger, level, ...)                \
+    do {                                                   \
+        if (logger.isPrintable(level)) {                   \
+            logger._M_logFormat(##__VA_ARGS__);            \
+            logger._M_logInfos(level, _LOGGER_FILE_INFOS); \
+        }                                                  \
+    } while (0)
 
 #define LOGGER_EMERG_FMT(...) _LOGGER_LOG_FMT(LOGGER_MAIN(), blet::Logger::EMERGENCY, __VA_ARGS__)
 #define LOGGER_ALERT_FMT(...) _LOGGER_LOG_FMT(LOGGER_MAIN(), blet::Logger::ALERT, __VA_ARGS__)
@@ -81,29 +87,35 @@
 /**
  * @brief Use format method for get the custom message
  */
-#define _LOGGER_LOG_P(logger, level, msg) \
-    logger.format msg; \
-    logger.logFmt(level, _LOGGER_FILE_INFOS)
+#define _LOGGER_LOG_FMT_P(logger, level, parenthesis_msg)  \
+    do {                                                   \
+        if (logger.isPrintable(level)) {                   \
+            logger._M_logFormat parenthesis_msg; \
+            logger._M_logInfos(level, _LOGGER_FILE_INFOS); \
+        }                                                  \
+    } while (0)
 
-#define LOGGER_EMERG_P(parenthesis_msg) _LOGGER_LOG_P(LOGGER_MAIN(), ::blet::Logger::EMERGENCY, parenthesis_msg)
-#define LOGGER_ALERT_P(parenthesis_msg) _LOGGER_LOG_P(LOGGER_MAIN(), ::blet::Logger::ALERT, parenthesis_msg)
-#define LOGGER_CRIT_P(parenthesis_msg) _LOGGER_LOG_P(LOGGER_MAIN(), ::blet::Logger::CRITICAL, parenthesis_msg)
-#define LOGGER_ERROR_P(parenthesis_msg) _LOGGER_LOG_P(LOGGER_MAIN(), ::blet::Logger::ERROR, parenthesis_msg)
-#define LOGGER_WARN_P(parenthesis_msg) _LOGGER_LOG_P(LOGGER_MAIN(), ::blet::Logger::WARNING, parenthesis_msg)
-#define LOGGER_NOTICE_P(parenthesis_msg) _LOGGER_LOG_P(LOGGER_MAIN(), ::blet::Logger::NOTICE, parenthesis_msg)
-#define LOGGER_INFO_P(parenthesis_msg) _LOGGER_LOG_P(LOGGER_MAIN(), ::blet::Logger::INFO, parenthesis_msg)
-#define LOGGER_DEBUG_P(parenthesis_msg) _LOGGER_LOG_P(LOGGER_MAIN(), ::blet::Logger::DEBUG, parenthesis_msg)
+#define LOGGER_EMERG_FMT_P(parenthesis_msg) _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::EMERGENCY, parenthesis_msg)
+#define LOGGER_ALERT_FMT_P(parenthesis_msg) _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::ALERT, parenthesis_msg)
+#define LOGGER_CRIT_FMT_P(parenthesis_msg) _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::CRITICAL, parenthesis_msg)
+#define LOGGER_ERROR_FMT_P(parenthesis_msg) _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::ERROR, parenthesis_msg)
+#define LOGGER_WARN_FMT_P(parenthesis_msg) _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::WARNING, parenthesis_msg)
+#define LOGGER_NOTICE_FMT_P(parenthesis_msg) _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::NOTICE, parenthesis_msg)
+#define LOGGER_INFO_FMT_P(parenthesis_msg) _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::INFO, parenthesis_msg)
+#define LOGGER_DEBUG_FMT_P(parenthesis_msg) _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::DEBUG, parenthesis_msg)
 
 /**
  * @brief Use format method for get the custom message
  */
-#define _LOGGER_LOG(logger, level, stream) \
-    do { \
-        if (logger.isPrintable(level)) { \
-        ::std::ostringstream __loggerOss(""); \
-        __loggerOss << stream; \
-        logger.logStream(level, _LOGGER_FILE_INFOS, __loggerOss); \
-    }} while(0)
+#define _LOGGER_LOG(logger, level, stream)                 \
+    do {                                                   \
+        if (logger.isPrintable(level)) {                   \
+            ::std::ostringstream __loggerTmpOss("");       \
+            __loggerTmpOss << stream;                      \
+            logger._M_logStream(__loggerTmpOss); \
+            logger._M_logInfos(level, _LOGGER_FILE_INFOS); \
+        }                                                  \
+    } while (0)
 
 #define LOGGER_EMERG(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::EMERGENCY, stream)
 #define LOGGER_ALERT(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::ALERT, stream)
@@ -114,19 +126,21 @@
 #define LOGGER_INFO(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::INFO, stream)
 #define LOGGER_DEBUG(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::DEBUG, stream)
 
+#define LOGGER_TO_EMERG(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::EMERGENCY, stream)
+#define LOGGER_TO_ALERT(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::ALERT, stream)
+#define LOGGER_TO_CRIT(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::CRITICAL, stream)
+#define LOGGER_TO_ERROR(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::ERROR, stream)
+#define LOGGER_TO_WARN(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::WARNING, stream)
+#define LOGGER_TO_NOTICE(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::NOTICE, stream)
+#define LOGGER_TO_INFO(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::INFO, stream)
+#define LOGGER_TO_DEBUG(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::DEBUG, stream)
+
 #define LOGGER_FLUSH() LOGGER_MAIN().flush()
 #define LOGGER_TO_FLUSH(logger) logger.flush()
 
 // OPTIONS
-
-#ifndef LOGGER_DROP_OVERFLOW
-#define LOGGER_ASYNC_WAIT_PRINT 1
-#else
-#define LOGGER_ASYNC_WAIT_PRINT 0
-#endif
-
 #ifndef LOGGER_QUEUE_SIZE
-#define LOGGER_QUEUE_SIZE 256
+#define LOGGER_QUEUE_SIZE 2048
 #endif
 
 #ifndef LOGGER_MESSAGE_MAX_SIZE
@@ -134,7 +148,8 @@
 #endif
 
 #ifndef LOGGER_DEFAULT_FORMAT
-#define LOGGER_DEFAULT_FORMAT "{level:%-6s} [{pid}:{tid}] {name:%10s}: {time}.{decimal:%03d}:{file: %25s:}{line:%-3d} {message}"
+#define LOGGER_DEFAULT_FORMAT \
+    "{level:%-6s} [{pid}:{tid}] {name:%10s}: {time}.{decimal:%03d}:{file: %25s:}{line:%-3d} {message}"
 #endif
 
 // name, level, path, file, line, func, pid, time, message, microsec, millisec, nanosec
@@ -143,20 +158,20 @@ namespace blet {
 
 class Logger {
   public:
-    class Exception: public std::exception {
-        public:
-            Exception(const char* s1, const char* s2 = "", const char* s3 = "") {
-                _str = s1;
-                _str += s2;
-                _str += s3;
-            }
-            virtual ~Exception() throw() {}
-            const char* what() const throw() {
-                return _str.c_str();
-            }
+    class Exception : public std::exception {
+      public:
+        Exception(const char* s1, const char* s2 = "", const char* s3 = "") {
+            _str = s1;
+            _str += s2;
+            _str += s3;
+        }
+        virtual ~Exception() throw() {}
+        const char* what() const throw() {
+            return _str.c_str();
+        }
 
-        protected:
-            std::string _str;
+      protected:
+        std::string _str;
     };
 
     enum eLevel {
@@ -171,16 +186,17 @@ class Logger {
     };
 
     struct Message {
-        char message[LOGGER_MESSAGE_MAX_SIZE];
         eLevel level;
         struct timespec ts;
         const char* file;
         const char* filename;
         const char* function;
         int line;
+        char* message;
     };
 
-    Logger(const char* name);
+    Logger(const char* name, unsigned int queueMaxSize = LOGGER_QUEUE_SIZE,
+           unsigned int messageMaxSize = LOGGER_MESSAGE_MAX_SIZE);
     ~Logger();
 
     static Logger& getMain() {
@@ -241,92 +257,75 @@ class Logger {
 
     void setFILE(FILE* file);
 
-    __attribute__((__format__(__printf__, 7, 8))) void macroAsyncLog(eLevel level, const char* file, const char* filename,
-                                                                int line, const char* function,
-                                                                const char* format, ...);
-
-    __attribute__((__format__(__printf__, 7, 8))) void macroLog(eLevel level, const char* file, const char* filename,
-                                                           int line, const char* function, const char* format,
-                                                           ...);
-
-    __attribute__((__format__(__printf__, 3, 4))) void asyncLog(eLevel level, const char* format, ...);
-
+    __attribute__((__format__(__printf__, 3, 4))) void logSync(eLevel level, const char* format, ...);
+    void vlog(eLevel level, const char* format, va_list& vargs);
     __attribute__((__format__(__printf__, 3, 4))) void log(eLevel level, const char* format, ...);
+    __attribute__((__format__(__printf__, 2, 3))) void emergency(const char* format, ...);
+    __attribute__((__format__(__printf__, 2, 3))) void alert(const char* format, ...);
+    __attribute__((__format__(__printf__, 2, 3))) void critical(const char* format, ...);
+    __attribute__((__format__(__printf__, 2, 3))) void error(const char* format, ...);
+    __attribute__((__format__(__printf__, 2, 3))) void warning(const char* format, ...);
+    __attribute__((__format__(__printf__, 2, 3))) void notice(const char* format, ...);
+    __attribute__((__format__(__printf__, 2, 3))) void info(const char* format, ...);
+    __attribute__((__format__(__printf__, 2, 3))) void debug(const char* format, ...);
 
-    __attribute__((__format__(__printf__, 2, 3))) void format(const char* format, ...);
+    /**
+     * @brief It's follow by _M_logInfos
+     */
+    __attribute__((__format__(__printf__, 2, 3))) void _M_logFormat(const char* format, ...);
 
-    void logFmt(eLevel level, const char* file, const char* filename, int line, const char* function);
-    void logStream(eLevel level, const char* file, const char* filename, int line, const char* function, const std::ostringstream& oss);
+    /**
+     * @brief It's follow by _M_logInfos
+     */
+    void _M_logStream(const ::std::ostringstream& os);
 
-    void printMessage(Message& message) const;
+    /**
+     * @brief It's prev by _M_logFormat or _M_logStream
+     *
+     * @param level
+     * @param file
+     * @param filename
+     * @param line
+     * @param function
+     */
+    void _M_logInfos(eLevel level, const char* file, const char* filename, int line, const char* function);
 
-    std::string name;
+    void printMessage(const Message& message);
+
+    const std::string name;
 
   private:
-    Logger(const Logger&){}; // disable copy
+    Logger(const Logger&) :
+        _messageMaxSize(0),
+        _queueMaxSize(0){}; // disable copy
     Logger& operator=(const Logger&) {
         return *this;
     }; // disable copy
 
     struct DebugPerf;
 
-    // format options
-    struct Format {
-        Format() :
-        time(""),
-        pid(0),
-        threadId(0),
-        nsecDivisor(1),
-        str(""),
-        origin("") {}
-
-        std::string time;
-        pid_t pid;
-        pthread_t threadId;
-        int nsecDivisor;
-
-        std::string str;
-        std::string strWOInfo;
-        std::string origin;
-    };
-
-    enum eFormat {
-        UNKNOWN_FORMAT = 0,
-        NAME_FORMAT = 1,
-        LEVEL_FORMAT = 2,
-        PATH_FORMAT = 3,
-        FILE_FORMAT = 4,
-        LINE_FORMAT = 5,
-        FUNC_FORMAT = 6,
-        PID_FORMAT = 7,
-        TIME_FORMAT = 8,
-        DECIMAL_FORMAT = 9,
-        MESSAGE_FORMAT = 10,
-        TID_FORMAT = 11
-    };
-
     static void* _threadLogger(void* e);
     void _threadLog();
 
     bool _isStarted;
+    unsigned int _currentMessageId;
+    pthread_mutex_t _queueMutex;
     pthread_mutex_t _logMutex;
-    pthread_mutex_t _logQueue;
     pthread_cond_t _condLog;
     pthread_cond_t _condFlush;
     sem_t _queueSemaphore;
     pthread_t _threadLogId;
-    volatile unsigned int _currentMessageId;
     int _levelFilter;
 
     FILE* _pfile;
+
+    const unsigned int _messageMaxSize;
+    const unsigned int _queueMaxSize;
+    char* _bufferMessages;
     Message* _messages;
     Message* _messagesSwap;
 
-    static Format _formatContructor(const char* format);
-    Format* _formats;
-
-    static eFormat _nameToEnumFormat(const std::string& name);
-    static const char* _idToDefaultFormat(const eFormat& id);
+    logger::Format* _formats;
 
     DebugPerf* _perf;
 };

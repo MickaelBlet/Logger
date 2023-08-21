@@ -1,13 +1,14 @@
 #include "blet/logger.h"
 
-#define NB_THREAD 5
+#define NB_THREAD 0
 
+int nbLogs = 2048;
 unsigned int nbThread = 0;
 
-void *threadLog(void*e) {
+void* threadLog(void* e) {
     (void)e;
-    for (int i = 0; i < 1000000; ++i) {
-        LOGGER_DEBUG("test" << ':' << i);
+    for (int i = 0; i < nbLogs; ++i) {
+        LOGGER_DEBUG_FMT_P(("test"));
     }
     return NULL;
 }
@@ -15,35 +16,41 @@ void *threadLog(void*e) {
 int main(int argc, char** argv) {
     (void)argc;
     (void)argv;
-    blet::Logger::getMain().setAllFormat("{decimal}: {message}");
-    // blet::Logger::getMain().disableLevel(::blet::Logger::DEBUG);
-    pthread_t threadId[NB_THREAD];
+    // blet::Logger::getMain().setAllFormat("{message}");
+    pthread_t* threadId = NULL;
+    if (NB_THREAD > 0) {
+        threadId = new pthread_t[NB_THREAD];
+    }
     for (int i = 0; i < NB_THREAD; ++i) {
         pthread_create(&threadId[i], NULL, &threadLog, &i);
     }
 
-    LOGGER_EMERG("x");
-    LOGGER_ALERT("x");
-    LOGGER_CRIT("x");
-    LOGGER_ERROR("x");
-    LOGGER_WARN("x");
-    LOGGER_NOTICE("x");
-    LOGGER_INFO("x");
-    LOGGER_DEBUG("x");
+    timespec startTime;
+    clock_gettime(CLOCK_MONOTONIC, &startTime);
 
-    LOGGER_DEBUG_P(("%s", "test"));
+    for (int i = 0; i < nbLogs; ++i) {
+        LOGGER_DEBUG_FMT_P(("test"));
+    }
 
-    LOGGER_FLUSH();
-    // for (int i = 0; i < 1000000; ++i) {
-    //     blet::Logger::getMain().asyncLog(blet::Logger::DEBUG, "woot?");
-    // }
+    timespec endTime;
+    clock_gettime(CLOCK_MONOTONIC, &endTime);
+
+    if ((endTime.tv_nsec - startTime.tv_nsec) < 0) {
+        endTime.tv_nsec = 1000000000 + (endTime.tv_nsec - startTime.tv_nsec);
+        endTime.tv_sec -= 1;
+    }
+    else {
+        endTime.tv_nsec = endTime.tv_nsec - startTime.tv_nsec;
+    }
+    fprintf(stderr, "***Time: %ld.%09ld\n", (endTime.tv_sec - startTime.tv_sec), endTime.tv_nsec);
 
     for (int i = 0; i < NB_THREAD; ++i) {
         pthread_join(threadId[i], NULL);
     }
 
-    LOGGER_FLUSH();
-    LOGGER_DEBUG("test");
+    if (NB_THREAD > 0) {
+        delete[] threadId;
+    }
 
     return 0;
 }

@@ -22,6 +22,7 @@ endif()
 
 add_library("${PROJECT_NAME}"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/logger.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/logger/format.cpp"
 )
 
 set_target_properties("${PROJECT_NAME}"
@@ -36,7 +37,7 @@ set_target_properties("${PROJECT_NAME}"
         INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/include"
         INTERFACE_INCLUDE_DIRECTORIES "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>;$<INSTALL_INTERFACE:include>"
         LINK_LIBRARIES "pthread"
-        COMPILE_DEFINITIONS "LOGGER_PERF_DEBUG=10"
+        COMPILE_DEFINITIONS "LOGGER_PERF_DEBUG=1"
 )
 
 # install
@@ -64,12 +65,12 @@ if(BUILD_TESTING)
     enable_testing()
 endif()
 
-if(BUILD_EXAMPLE)
-    add_subdirectory(example)
-endif()
-
 if(BUILD_SINGLE_INCLUDE)
     add_subdirectory(single_include)
+endif()
+
+if(BUILD_EXAMPLE)
+    add_subdirectory(example)
 endif()
 
 # test
