@@ -16,10 +16,10 @@ foreach(file ${example_files})
             CXX_STANDARD_REQUIRED ON
             CXX_EXTENSIONS OFF
             NO_SYSTEM_FROM_IMPORTED ON
-            COMPILE_FLAGS "-O3 -pedantic -pthread -Wall -Wextra"
+            COMPILE_FLAGS "-O2 -pedantic -pthread -Wall -Wextra"
             INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../single_include"
             LINK_LIBRARIES "pthread"
-            COMPILE_DEFINITIONS "LOGGER_PERF_DEBUG=1"
+            COMPILE_DEFINITIONS "LOGGER_PERF_DEBUG=1;LOGGER_DROP_OVERFLOW=1"
     )
     add_dependencies("${filenamewe}.${library_project_name}.example" "${library_project_name}_single_include")
 endforeach()

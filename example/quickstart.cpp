@@ -1,8 +1,9 @@
 #include "blet/logger.h"
+#include <unistd.h>
 
-#define NB_THREAD 0
+#define NB_THREAD 1
 
-int nbLogs = 2048;
+int nbLogs = 10000000;
 unsigned int nbThread = 0;
 
 void* threadLog(void* e) {

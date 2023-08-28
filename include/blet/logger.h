@@ -47,13 +47,13 @@
 #endif
 
 #if defined _WIN32 || defined _WIN64
-#define __FUNCTION_NAME__ __FUNCTION__
+#define _LOGGER_FUNCTION_NAME __FUNCTION__
 #else
-#define __FUNCTION_NAME__ __func__
+#define _LOGGER_FUNCTION_NAME __func__
 #endif
 
 #define _LOGGER_FILENAME (const char*)(::strrchr(__FILE__, _LOGGER_SEPARATOR_PATH) + 1)
-#define _LOGGER_FILE_INFOS __FILE__, _LOGGER_FILENAME, __LINE__, __FUNCTION_NAME__
+#define _LOGGER_FILE_INFOS __FILE__, _LOGGER_FILENAME, __LINE__, _LOGGER_FUNCTION_NAME
 
 #define LOGGER_MAIN() ::blet::Logger::getMain()
 
@@ -63,13 +63,14 @@
 #endif
 #endif
 
-#ifdef LOGGER_VARIDIC_MACRO
+#ifdef LOGGER_VARIADIC_MACRO
 
 #define _LOGGER_LOG_FMT(logger, level, ...)                \
     do {                                                   \
-        if (logger.isPrintable(level)) {                   \
+        if (logger.isPrintable(level) && logger._M_lock()) {                   \
             logger._M_logFormat(##__VA_ARGS__);            \
             logger._M_logInfos(level, _LOGGER_FILE_INFOS); \
+            logger._M_unlock();                            \
         }                                                  \
     } while (0)
 
@@ -89,9 +90,10 @@
  */
 #define _LOGGER_LOG_FMT_P(logger, level, parenthesis_msg)  \
     do {                                                   \
-        if (logger.isPrintable(level)) {                   \
+        if (logger.isPrintable(level) && logger._M_lock()) {      \
             logger._M_logFormat parenthesis_msg; \
             logger._M_logInfos(level, _LOGGER_FILE_INFOS); \
+            logger._M_unlock();                            \
         }                                                  \
     } while (0)
 
@@ -109,11 +111,12 @@
  */
 #define _LOGGER_LOG(logger, level, stream)                 \
     do {                                                   \
-        if (logger.isPrintable(level)) {                   \
+        if (logger.isPrintable(level) && logger._M_lock()) {                   \
             ::std::ostringstream __loggerTmpOss("");       \
             __loggerTmpOss << stream;                      \
             logger._M_logStream(__loggerTmpOss); \
             logger._M_logInfos(level, _LOGGER_FILE_INFOS); \
+            logger._M_unlock();                            \
         }                                                  \
     } while (0)
 
@@ -139,8 +142,12 @@
 #define LOGGER_TO_FLUSH(logger) logger.flush()
 
 // OPTIONS
+#ifndef LOGGER_DROP_OVERFLOW
+#define LOGGER_ASYNC_WAIT_PRINT 1
+#endif
+
 #ifndef LOGGER_QUEUE_SIZE
-#define LOGGER_QUEUE_SIZE 2048
+#define LOGGER_QUEUE_SIZE 1024
 #endif
 
 #ifndef LOGGER_MESSAGE_MAX_SIZE
@@ -206,6 +213,43 @@ class Logger {
 
     bool isPrintable(const eLevel& level) {
         return (1 << level) & _levelFilter;
+    }
+
+    bool _M_lock() {
+        bool ret = true;
+
+#ifdef LOGGER_ASYNC_WAIT_PRINT
+        ::pthread_mutex_lock(&_logMutex);
+        ::pthread_mutex_lock(&_queueMutex);
+        if (_currentMessageId >= _queueMaxSize - 1) {
+            ::pthread_cond_wait(&_condLog, &_queueMutex);
+        }
+#else
+        // without lock
+        if (_currentMessageId >= _queueMaxSize - 1) {
+            ret = false;
+            ++_droppedMessageNb;
+        }
+        else {
+            ::pthread_mutex_lock(&_logMutex);
+            ::pthread_mutex_lock(&_queueMutex);
+            // with lock
+            if (_currentMessageId >= _queueMaxSize - 1) {
+                ::pthread_mutex_unlock(&_queueMutex);
+                ::pthread_mutex_unlock(&_logMutex);
+                ret = false;
+                ++_droppedMessageNb;
+            }
+        }
+#endif
+        return ret;
+    }
+
+    void _M_unlock() {
+        // move index
+        ++_currentMessageId;
+        ::pthread_mutex_unlock(&_queueMutex);
+        ::pthread_mutex_unlock(&_logMutex);
     }
 
     void enableLevel(const eLevel& level) {
@@ -302,18 +346,51 @@ class Logger {
         return *this;
     }; // disable copy
 
-    struct DebugPerf;
+    struct DebugPerf {
+        DebugPerf(const char* name_) :
+        name(name_),
+        messageCount(0),
+        messagePrinted(0) {
+            clock_gettime(CLOCK_MONOTONIC, &startTime);
+        }
+        ~DebugPerf() {
+            ::timespec endTs;
+            clock_gettime(CLOCK_MONOTONIC, &endTs);
+            if ((endTs.tv_nsec - startTime.tv_nsec) < 0) {
+                endTs.tv_nsec = 1000000000 + (endTs.tv_nsec - startTime.tv_nsec);
+                endTs.tv_sec -= 1;
+            }
+            else {
+                endTs.tv_nsec = endTs.tv_nsec - startTime.tv_nsec;
+            }
+            fprintf(stderr, "LOGGER_PERF %s:\n", name.c_str());
+            fprintf(stderr, "- Time: %ld.%09ld\n", (endTs.tv_sec - startTime.tv_sec), endTs.tv_nsec);
+            fprintf(stderr, "- Message counted: %u\n", messageCount);
+            fprintf(stderr, "- Message printed: %u\n", messagePrinted);
+            fprintf(stderr, "- Message lost: %u\n", messageCount - messagePrinted);
+            fprintf(stderr, "- Message rate: %f\n",
+                    messagePrinted / ((endTs.tv_sec - startTime.tv_sec) * 1000000000.0 + endTs.tv_nsec) * 1000000000);
+            fflush(stderr);
+        }
+        std::string name;
+        ::timespec startTime;
+        unsigned int messageCount;
+        unsigned int messagePrinted;
+    };
 
     static void* _threadLogger(void* e);
     void _threadLog();
 
     bool _isStarted;
     unsigned int _currentMessageId;
+    unsigned int _droppedMessageNb;
     pthread_mutex_t _queueMutex;
     pthread_mutex_t _logMutex;
+    pthread_mutex_t _droppedMutex;
     pthread_cond_t _condLog;
     pthread_cond_t _condFlush;
     sem_t _queueSemaphore;
+    sem_t _droppedMessageSemaphore;
     pthread_t _threadLogId;
     int _levelFilter;
 

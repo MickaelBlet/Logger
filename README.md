@@ -11,8 +11,8 @@ int main(int /*argc*/, char** /*argv*/) {
     LOGGER_INFO("Start");
     LOGGER_DEBUG("Hello" << " world");
     LOGGER_DEBUG("Hello " << 42 << " world");
-// if LOGGER_VARIDIC_MACRO is defined
-#ifdef LOGGER_VARIDIC_MACRO
+// if LOGGER_VARIADIC_MACRO is defined
+#ifdef LOGGER_VARIADIC_MACRO
     LOGGER_WARN_FMT("%s %s", "Hello", "world");
 #else
     // if pedantic c++98
