@@ -1,23 +1,30 @@
-#include "blet/logger.h"
 #include <unistd.h>
 
-#define NB_THREAD 1
+#include <iostream>
 
-int nbLogs = 10000000;
+#include "blet/logger.h"
+
+#define NB_THREAD 10
+
+int nbLogs = 100000;
 unsigned int nbThread = 0;
 
 void* threadLog(void* e) {
     (void)e;
     for (int i = 0; i < nbLogs; ++i) {
         LOGGER_DEBUG_FMT_P(("test"));
+        // usleep(1000);
     }
     return NULL;
 }
 
 int main(int argc, char** argv) {
+    // std::cerr << ::pthread_self() << std::endl;
+    // std::cerr << ::pthread_self() % 101 << std::endl;
     (void)argc;
     (void)argv;
-    // blet::Logger::getMain().setAllFormat("{message}");
+    // blet::Logger::getMain().setAllFormat("{decimal} {message}");
+    // blet::Logger::getMain().disableLevel(blet::Logger::DEBUG);
     pthread_t* threadId = NULL;
     if (NB_THREAD > 0) {
         threadId = new pthread_t[NB_THREAD];
@@ -31,6 +38,7 @@ int main(int argc, char** argv) {
 
     for (int i = 0; i < nbLogs; ++i) {
         LOGGER_DEBUG_FMT_P(("test"));
+        // usleep(1000);
     }
 
     timespec endTime;
@@ -43,7 +51,7 @@ int main(int argc, char** argv) {
     else {
         endTime.tv_nsec = endTime.tv_nsec - startTime.tv_nsec;
     }
-    fprintf(stderr, "***Time: %ld.%09ld\n", (endTime.tv_sec - startTime.tv_sec), endTime.tv_nsec);
+    // fprintf(stderr, "***Time: %ld.%09ld\n", (endTime.tv_sec - startTime.tv_sec), endTime.tv_nsec);
 
     for (int i = 0; i < NB_THREAD; ++i) {
         pthread_join(threadId[i], NULL);

@@ -65,13 +65,13 @@
 
 #ifdef LOGGER_VARIADIC_MACRO
 
-#define _LOGGER_LOG_FMT(logger, level, ...)                \
-    do {                                                   \
-        if (logger.isPrintable(level) && logger._M_lock()) {                   \
-            logger._M_logFormat(##__VA_ARGS__);            \
-            logger._M_logInfos(level, _LOGGER_FILE_INFOS); \
-            logger._M_unlock();                            \
-        }                                                  \
+#define _LOGGER_LOG_FMT(logger, level, ...)                  \
+    do {                                                     \
+        if (logger.isPrintable(level) && logger._M_lock()) { \
+            logger._M_logFormat(##__VA_ARGS__);              \
+            logger._M_logInfos(level, _LOGGER_FILE_INFOS);   \
+            logger._M_unlock();                              \
+        }                                                    \
     } while (0)
 
 #define LOGGER_EMERG_FMT(...) _LOGGER_LOG_FMT(LOGGER_MAIN(), blet::Logger::EMERGENCY, __VA_ARGS__)
@@ -88,13 +88,13 @@
 /**
  * @brief Use format method for get the custom message
  */
-#define _LOGGER_LOG_FMT_P(logger, level, parenthesis_msg)  \
-    do {                                                   \
-        if (logger.isPrintable(level) && logger._M_lock()) {      \
-            logger._M_logFormat parenthesis_msg; \
-            logger._M_logInfos(level, _LOGGER_FILE_INFOS); \
-            logger._M_unlock();                            \
-        }                                                  \
+#define _LOGGER_LOG_FMT_P(logger, level, parenthesis_msg)    \
+    do {                                                     \
+        if (logger.isPrintable(level) && logger._M_lock()) { \
+            logger._M_logFormat parenthesis_msg;             \
+            logger._M_logInfos(level, _LOGGER_FILE_INFOS);   \
+            logger._M_unlock();                              \
+        }                                                    \
     } while (0)
 
 #define LOGGER_EMERG_FMT_P(parenthesis_msg) _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::EMERGENCY, parenthesis_msg)
@@ -109,15 +109,15 @@
 /**
  * @brief Use format method for get the custom message
  */
-#define _LOGGER_LOG(logger, level, stream)                 \
-    do {                                                   \
-        if (logger.isPrintable(level) && logger._M_lock()) {                   \
-            ::std::ostringstream __loggerTmpOss("");       \
-            __loggerTmpOss << stream;                      \
-            logger._M_logStream(__loggerTmpOss); \
-            logger._M_logInfos(level, _LOGGER_FILE_INFOS); \
-            logger._M_unlock();                            \
-        }                                                  \
+#define _LOGGER_LOG(logger, level, stream)                   \
+    do {                                                     \
+        if (logger.isPrintable(level) && logger._M_lock()) { \
+            ::std::ostringstream __loggerTmpOss("");         \
+            __loggerTmpOss << stream;                        \
+            logger._M_logStream(__loggerTmpOss);             \
+            logger._M_logInfos(level, _LOGGER_FILE_INFOS);   \
+            logger._M_unlock();                              \
+        }                                                    \
     } while (0)
 
 #define LOGGER_EMERG(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::EMERGENCY, stream)
@@ -147,7 +147,7 @@
 #endif
 
 #ifndef LOGGER_QUEUE_SIZE
-#define LOGGER_QUEUE_SIZE 1024
+#define LOGGER_QUEUE_SIZE 128
 #endif
 
 #ifndef LOGGER_MESSAGE_MAX_SIZE
@@ -158,8 +158,6 @@
 #define LOGGER_DEFAULT_FORMAT \
     "{level:%-6s} [{pid}:{tid}] {name:%10s}: {time}.{decimal:%03d}:{file: %25s:}{line:%-3d} {message}"
 #endif
-
-// name, level, path, file, line, func, pid, time, message, microsec, millisec, nanosec
 
 namespace blet {
 
@@ -221,24 +219,25 @@ class Logger {
 #ifdef LOGGER_ASYNC_WAIT_PRINT
         ::pthread_mutex_lock(&_logMutex);
         ::pthread_mutex_lock(&_queueMutex);
-        if (_currentMessageId >= _queueMaxSize - 1) {
+        if (_currentMessageId > _queueMaxSize - 2) {
             ::pthread_cond_wait(&_condLog, &_queueMutex);
         }
 #else
         // without lock
-        if (_currentMessageId >= _queueMaxSize - 1) {
+        if (_currentMessageId > _queueMaxSize - 2) {
             ret = false;
-            ++_droppedMessageNb;
+            increaseByThread();
+            // ++_droppedMessageNb;
         }
         else {
             ::pthread_mutex_lock(&_logMutex);
             ::pthread_mutex_lock(&_queueMutex);
             // with lock
-            if (_currentMessageId >= _queueMaxSize - 1) {
+            if (_currentMessageId > _queueMaxSize - 2) {
                 ::pthread_mutex_unlock(&_queueMutex);
                 ::pthread_mutex_unlock(&_logMutex);
+                increaseByThread();
                 ret = false;
-                ++_droppedMessageNb;
             }
         }
 #endif
@@ -250,6 +249,10 @@ class Logger {
         ++_currentMessageId;
         ::pthread_mutex_unlock(&_queueMutex);
         ::pthread_mutex_unlock(&_logMutex);
+    }
+
+    void increaseByThread() {
+        ++threadCounter[::pthread_self() % 1001];
     }
 
     void enableLevel(const eLevel& level) {
@@ -348,9 +351,9 @@ class Logger {
 
     struct DebugPerf {
         DebugPerf(const char* name_) :
-        name(name_),
-        messageCount(0),
-        messagePrinted(0) {
+            name(name_),
+            messageCount(0),
+            messagePrinted(0) {
             clock_gettime(CLOCK_MONOTONIC, &startTime);
         }
         ~DebugPerf() {
@@ -393,6 +396,7 @@ class Logger {
     sem_t _droppedMessageSemaphore;
     pthread_t _threadLogId;
     int _levelFilter;
+    int threadCounter[1001];
 
     FILE* _pfile;
 

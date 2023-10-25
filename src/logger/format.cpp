@@ -1,7 +1,7 @@
 #include "blet/logger/format.h"
 
-#include <unistd.h>
 #include <stdio.h>
+#include <unistd.h>
 
 #include <iostream>
 #include <list>
@@ -92,21 +92,46 @@ static Format::eAction s_nameToEnumAction(const std::string& name) {
 }
 
 static const char* s_idToDefaultFormat(const Format::eAction& id) {
-    static const char* idToDefaultFormat[] = {
-        "unknown",
-        "%s", // name
-        "%s", // level
-        "%s", // path
-        "%s", // file
-        "%d", // line
-        "%s", // func
-        "%d", // pid
-        "%s", // time
-        "%d", // decimal
-        "%s", // message
-        "%X"  // threadid
-    };
-    return idToDefaultFormat[id];
+    const char* ret = NULL;
+    switch (id) {
+        case Format::PRINT_ACTION:
+            ret = "unknown";
+            break;
+        case Format::NAME_ACTION:
+            ret = "%s";
+            break;
+        case Format::LEVEL_ACTION:
+            ret = "%s";
+            break;
+        case Format::PATH_ACTION:
+            ret = "%s";
+            break;
+        case Format::FILE_ACTION:
+            ret = "%s";
+            break;
+        case Format::LINE_ACTION:
+            ret = "%d";
+            break;
+        case Format::FUNC_ACTION:
+            ret = "%s";
+            break;
+        case Format::PID_ACTION:
+            ret = "%d";
+            break;
+        case Format::TID_ACTION:
+            ret = "%X";
+            break;
+        case Format::TIME_ACTION:
+            ret = "%s";
+            break;
+        case Format::DECIMAL_ACTION:
+            ret = "%d";
+            break;
+        case Format::MESSAGE_ACTION:
+            ret = "%s";
+            break;
+    }
+    return ret;
 }
 
 static int s_getDecimalDivisor(const std::string& format) {
@@ -169,15 +194,13 @@ Format::Format() :
     time(""),
     pid(0),
     threadId(0),
-    nsecDivisor(1)
-    {}
+    nsecDivisor(1) {}
 
 Format::Format(const std::string& loggerName, const char* format) :
     time(""),
     pid(0),
     threadId(0),
-    nsecDivisor(1)
-    {
+    nsecDivisor(1) {
     std::string sFormat(format);
     // transform "{:}" non escape characters
     s_formatSerialize(sFormat);
@@ -295,9 +318,7 @@ Format::Format(const std::string& loggerName, const char* format) :
     it = actions.begin();
     while (it != actions.end()) {
         // replace action by string
-        if (it->action == NAME_ACTION ||
-            it->action == PID_ACTION ||
-            it->action == TID_ACTION) {
+        if (it->action == NAME_ACTION || it->action == PID_ACTION || it->action == TID_ACTION) {
             char buffer[128];
             switch (it->action) {
                 case NAME_ACTION:

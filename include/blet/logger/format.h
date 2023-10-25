@@ -28,8 +28,8 @@
 
 #include <pthread.h>
 
-#include <string>
 #include <list>
+#include <string>
 
 namespace blet {
 
@@ -45,10 +45,10 @@ struct Format {
         LINE_ACTION = 5,
         FUNC_ACTION = 6,
         PID_ACTION = 7,
-        TIME_ACTION = 8,
-        DECIMAL_ACTION = 9,
-        MESSAGE_ACTION = 10,
-        TID_ACTION = 11
+        TID_ACTION = 8,
+        TIME_ACTION = 9,
+        DECIMAL_ACTION = 10,
+        MESSAGE_ACTION = 11
     };
 
     Format();
@@ -62,7 +62,8 @@ struct Format {
 
     struct Action {
         Action(eAction action_, const std::string& format_) :
-            action(action_), format(format_) {}
+            action(action_),
+            format(format_) {}
         eAction action;
         std::string format;
     };

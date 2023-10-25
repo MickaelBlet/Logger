@@ -45,7 +45,429 @@
 #include <sstream>
 #include <string>
 
-// #include "logger/format.h"
+// #include "blet/logger/default.h"
+// -----------------------------------
+// Start include/blet/logger/default.h
+// -----------------------------------
+
+#ifndef _BLET_LOGGER_DEFAULT_H_
+#define _BLET_LOGGER_DEFAULT_H_
+
+#ifndef LOGGER_DEFAULT_FILTER_LEVEL
+#define LOGGER_DEFAULT_FILTER_LEVEL \
+    ((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7))
+#endif
+
+#ifndef LOGGER_DEFAULT_DROP_FILTER_LEVEL
+#define LOGGER_DEFAULT_DROP_FILTER_LEVEL ((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6))
+#endif
+
+#ifndef LOGGER_DEFAULT_QUEUE_SIZE
+#define LOGGER_DEFAULT_QUEUE_SIZE 17
+#endif
+
+#ifndef LOGGER_DEFAULT_MESSAGE_MAX_SIZE
+#define LOGGER_DEFAULT_MESSAGE_MAX_SIZE 2048
+#endif
+
+#ifndef LOGGER_DEFAULT_FORMAT
+#define LOGGER_DEFAULT_FORMAT \
+    "{level:%-6s} [{pid}:{tid}] {name:%10s}: {time}.{decimal:%03d}:{file: %25s:}{line:%-3d} {message}"
+#endif
+
+#ifndef LOGGER_DEFAULT_FORMAT_COLOR_EMERGENCY
+#define LOGGER_DEFAULT_FORMAT_COLOR_EMERGENCY "{bg_magenta}{fg_black}" LOGGER_DEFAULT_FORMAT "{color_reset}"
+#endif
+
+#ifndef LOGGER_DEFAULT_FORMAT_COLOR_ALERT
+#define LOGGER_DEFAULT_FORMAT_COLOR_ALERT "{fg_magenta}" LOGGER_DEFAULT_FORMAT "{color_reset}"
+#endif
+
+#ifndef LOGGER_DEFAULT_FORMAT_COLOR_CRITICAL
+#define LOGGER_DEFAULT_FORMAT_COLOR_CRITICAL "{bg_red}{fg_black}" LOGGER_DEFAULT_FORMAT "{color_reset}"
+#endif
+
+#ifndef LOGGER_DEFAULT_FORMAT_COLOR_ERROR
+#define LOGGER_DEFAULT_FORMAT_COLOR_ERROR "{fg_red}" LOGGER_DEFAULT_FORMAT "{color_reset}"
+#endif
+
+#ifndef LOGGER_DEFAULT_FORMAT_COLOR_WARNING
+#define LOGGER_DEFAULT_FORMAT_COLOR_WARNING "{fg_yellow}" LOGGER_DEFAULT_FORMAT "{color_reset}"
+#endif
+
+#ifndef LOGGER_DEFAULT_FORMAT_COLOR_NOTICE
+#define LOGGER_DEFAULT_FORMAT_COLOR_NOTICE "{fg_blue}" LOGGER_DEFAULT_FORMAT "{color_reset}"
+#endif
+
+#ifndef LOGGER_DEFAULT_FORMAT_COLOR_INFO
+#define LOGGER_DEFAULT_FORMAT_COLOR_INFO "{fg_cyan}" LOGGER_DEFAULT_FORMAT "{color_reset}"
+#endif
+
+#ifndef LOGGER_DEFAULT_FORMAT_COLOR_DEBUG
+#define LOGGER_DEFAULT_FORMAT_COLOR_DEBUG "{fg_green}" LOGGER_DEFAULT_FORMAT "{color_reset}"
+#endif
+
+#endif // #ifndef _BLET_LOGGER_DEFAULT_H_
+
+// ---------------------------------
+// End include/blet/logger/default.h
+// ---------------------------------
+
+// #include "blet/logger/macro.h"
+// ---------------------------------
+// Start include/blet/logger/macro.h
+// ---------------------------------
+
+#ifndef _BLET_LOGGER_MACRO_H_
+#define _BLET_LOGGER_MACRO_H_
+
+#if defined _WIN32 || defined _WIN64 || defined __CYGWIN__
+#define _LOGGER_SEPARATOR_PATH '\\'
+#else
+#define _LOGGER_SEPARATOR_PATH '/'
+#endif
+
+#if defined _WIN32 || defined _WIN64
+#define _LOGGER_FUNCTION_NAME __FUNCTION__
+#else
+#define _LOGGER_FUNCTION_NAME __func__
+#endif
+
+#define _LOGGER_FILE_INFOS __FILE__, (::strrchr(__FILE__, _LOGGER_SEPARATOR_PATH) + 1), __LINE__, _LOGGER_FUNCTION_NAME
+
+/**
+ * @brief Get the main logger
+ */
+#define LOGGER_MAIN() ::blet::Logger::getMain()
+
+/**
+ * @brief Add logger with a id
+ */
+#define LOGGER_REGISTER_WITH_ID(logger, id) ::blet::LoggerManager<id>::set(logger)
+/**
+ * @brief Get logger from id
+ */
+#define LOGGER_FROM_ID(id) ::blet::LoggerManager<id>::get()
+
+#ifdef LOGGER_VARIADIC_MACRO
+
+#define _LOGGER_LOG_FMT(logger, level, ...)                \
+    do {                                                   \
+        if (logger._M_lock(level)) {                       \
+            logger._M_logFormat(##__VA_ARGS__);            \
+            logger._M_logInfos(level, _LOGGER_FILE_INFOS); \
+            logger._M_unlock();                            \
+        }                                                  \
+    } while (0)
+
+/**
+ * @brief Emergency log to main logger
+ */
+#define LOGGER_EMERG_FMT(...) _LOGGER_LOG_FMT(LOGGER_MAIN(), ::blet::Logger::EMERGENCY_LEVEL, __VA_ARGS__)
+/**
+ * @brief Alert log to main logger
+ */
+#define LOGGER_ALERT_FMT(...) _LOGGER_LOG_FMT(LOGGER_MAIN(), ::blet::Logger::ALERT_LEVEL, __VA_ARGS__)
+/**
+ * @brief Critical log to main logger
+ */
+#define LOGGER_CRIT_FMT(...) _LOGGER_LOG_FMT(LOGGER_MAIN(), ::blet::Logger::CRITICAL_LEVEL, __VA_ARGS__)
+/**
+ * @brief Error log to main logger
+ */
+#define LOGGER_ERROR_FMT(...) _LOGGER_LOG_FMT(LOGGER_MAIN(), ::blet::Logger::ERROR_LEVEL, __VA_ARGS__)
+/**
+ * @brief Warning log to main logger
+ */
+#define LOGGER_WARN_FMT(...) _LOGGER_LOG_FMT(LOGGER_MAIN(), ::blet::Logger::WARNING_LEVEL, __VA_ARGS__)
+/**
+ * @brief Notice log to main logger
+ */
+#define LOGGER_NOTICE_FMT(...) _LOGGER_LOG_FMT(LOGGER_MAIN(), ::blet::Logger::NOTICE_LEVEL, __VA_ARGS__)
+/**
+ * @brief Info log to main logger
+ */
+#define LOGGER_INFO_FMT(...) _LOGGER_LOG_FMT(LOGGER_MAIN(), ::blet::Logger::INFO_LEVEL, __VA_ARGS__)
+/**
+ * @brief Debug log to main logger
+ */
+#define LOGGER_DEBUG_FMT(...) _LOGGER_LOG_FMT(LOGGER_MAIN(), ::blet::Logger::DEBUG_LEVEL, __VA_ARGS__)
+
+/**
+ * @brief Emergency log to logger id
+ */
+#define LOGGER_ID_EMERG_FMT(id, ...) _LOGGER_LOG_FMT(LOGGER_FROM_ID(id::), blet::Logger::EMERGENCY, __VA_ARGS__)
+/**
+ * @brief Alert log to logger id
+ */
+#define LOGGER_ID_ALERT_FMT(id, ...) _LOGGER_LOG_FMT(LOGGER_FROM_ID(id), ::blet::Logger::ALERT_LEVEL, __VA_ARGS__)
+/**
+ * @brief Critical log to logger id
+ */
+#define LOGGER_ID_CRIT_FMT(id, ...) _LOGGER_LOG_FMT(LOGGER_FROM_ID(id), ::blet::Logger::CRITICAL_LEVEL, __VA_ARGS__)
+/**
+ * @brief Error log to logger id
+ */
+#define LOGGER_ID_ERROR_FMT(id, ...) _LOGGER_LOG_FMT(LOGGER_FROM_ID(id), ::blet::Logger::ERROR_LEVEL, __VA_ARGS__)
+/**
+ * @brief Warning log to logger id
+ */
+#define LOGGER_ID_WARN_FMT(id, ...) _LOGGER_LOG_FMT(LOGGER_FROM_ID(id), ::blet::Logger::WARNING_LEVEL, __VA_ARGS__)
+/**
+ * @brief Notice log to logger id
+ */
+#define LOGGER_ID_NOTICE_FMT(id, ...) _LOGGER_LOG_FMT(LOGGER_FROM_ID(id), ::blet::Logger::NOTICE_LEVEL, __VA_ARGS__)
+/**
+ * @brief Info log to logger id
+ */
+#define LOGGER_ID_INFO_FMT(id, ...) _LOGGER_LOG_FMT(LOGGER_FROM_ID(id), ::blet::Logger::INFO_LEVEL, __VA_ARGS__)
+/**
+ * @brief Debug log to logger id
+ */
+#define LOGGER_ID_DEBUG_FMT(id, ...) _LOGGER_LOG_FMT(LOGGER_FROM_ID(id), ::blet::Logger::DEBUG_LEVEL, __VA_ARGS__)
+
+/**
+ * @brief Emergency log to logger
+ */
+#define LOGGER_TO_EMERG_FMT(logger, ...) _LOGGER_LOG_FMT(logger, ::blet::Logger::EMERGENCY_LEVEL, __VA_ARGS__)
+/**
+ * @brief Alert log to logger
+ */
+#define LOGGER_TO_ALERT_FMT(logger, ...) _LOGGER_LOG_FMT(logger, ::blet::Logger::ALERT_LEVEL, __VA_ARGS__)
+/**
+ * @brief Critical log to logger
+ */
+#define LOGGER_TO_CRIT_FMT(logger, ...) _LOGGER_LOG_FMT(logger, ::blet::Logger::CRITICAL_LEVEL, __VA_ARGS__)
+/**
+ * @brief Error log to logger
+ */
+#define LOGGER_TO_ERROR_FMT(logger, ...) _LOGGER_LOG_FMT(logger, ::blet::Logger::ERROR_LEVEL, __VA_ARGS__)
+/**
+ * @brief Warning log to logger
+ */
+#define LOGGER_TO_WARN_FMT(logger, ...) _LOGGER_LOG_FMT(logger, ::blet::Logger::WARNING_LEVEL, __VA_ARGS__)
+/**
+ * @brief Notice log to logger
+ */
+#define LOGGER_TO_NOTICE_FMT(logger, ...) _LOGGER_LOG_FMT(logger, ::blet::Logger::NOTICE_LEVEL, __VA_ARGS__)
+/**
+ * @brief Info log to logger
+ */
+#define LOGGER_TO_INFO_FMT(logger, ...) _LOGGER_LOG_FMT(logger, ::blet::Logger::INFO_LEVEL, __VA_ARGS__)
+/**
+ * @brief Debug log to logger
+ */
+#define LOGGER_TO_DEBUG_FMT(logger, ...) _LOGGER_LOG_FMT(logger, ::blet::Logger::DEBUG_LEVEL, __VA_ARGS__)
+
+#endif
+
+/**
+ * @brief Use format method for get the custom message
+ */
+#define _LOGGER_LOG_FMT_P(logger, level, parenthesis_msg)  \
+    do {                                                   \
+        if (logger._M_lock(level)) {                       \
+            logger._M_logFormat parenthesis_msg;           \
+            logger._M_logInfos(level, _LOGGER_FILE_INFOS); \
+            logger._M_unlock();                            \
+        }                                                  \
+    } while (0)
+
+/**
+ * @brief Emergency log to main logger
+ */
+#define LOGGER_EMERG_FMT_P(parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::EMERGENCY_LEVEL, parenthesis_msg)
+/**
+ * @brief Alert log to main logger
+ */
+#define LOGGER_ALERT_FMT_P(parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::ALERT_LEVEL, parenthesis_msg)
+/**
+ * @brief Critical log to main logger
+ */
+#define LOGGER_CRIT_FMT_P(parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::CRITICAL_LEVEL, parenthesis_msg)
+/**
+ * @brief Error log to main logger
+ */
+#define LOGGER_ERROR_FMT_P(parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::ERROR_LEVEL, parenthesis_msg)
+/**
+ * @brief Warning log to main logger
+ */
+#define LOGGER_WARN_FMT_P(parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::WARNING_LEVEL, parenthesis_msg)
+/**
+ * @brief Notice log to main logger
+ */
+#define LOGGER_NOTICE_FMT_P(parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::NOTICE_LEVEL, parenthesis_msg)
+/**
+ * @brief Info log to main logger
+ */
+#define LOGGER_INFO_FMT_P(parenthesis_msg) _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::INFO_LEVEL, parenthesis_msg)
+/**
+ * @brief Debug log to main logger
+ */
+#define LOGGER_DEBUG_FMT_P(parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::DEBUG_LEVEL, parenthesis_msg)
+
+/**
+ * @brief Emergency log to logger id
+ */
+#define LOGGER_ID_EMERG_FMT_P(id, parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(LOGGER_FROM_ID(id), ::blet::Logger::EMERGENCY_LEVEL, parenthesis_msg)
+/**
+ * @brief Alert log to logger id
+ */
+#define LOGGER_ID_ALERT_FMT_P(id, parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(LOGGER_FROM_ID(id), ::blet::Logger::ALERT_LEVEL, parenthesis_msg)
+/**
+ * @brief Critical log to logger id
+ */
+#define LOGGER_ID_CRIT_FMT_P(id, parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(LOGGER_FROM_ID(id), ::blet::Logger::CRITICAL_LEVEL, parenthesis_msg)
+/**
+ * @brief Error log to logger id
+ */
+#define LOGGER_ID_ERROR_FMT_P(id, parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(LOGGER_FROM_ID(id), ::blet::Logger::ERROR_LEVEL, parenthesis_msg)
+/**
+ * @brief Warning log to logger id
+ */
+#define LOGGER_ID_WARN_FMT_P(id, parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(LOGGER_FROM_ID(id), ::blet::Logger::WARNING_LEVEL, parenthesis_msg)
+/**
+ * @brief Notice log to logger id
+ */
+#define LOGGER_ID_NOTICE_FMT_P(id, parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(LOGGER_FROM_ID(id), ::blet::Logger::NOTICE_LEVEL, parenthesis_msg)
+/**
+ * @brief Info log to logger id
+ */
+#define LOGGER_ID_INFO_FMT_P(id, parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(LOGGER_FROM_ID(id), ::blet::Logger::INFO_LEVEL, parenthesis_msg)
+/**
+ * @brief Debug log to logger id
+ */
+#define LOGGER_ID_DEBUG_FMT_P(id, parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(LOGGER_FROM_ID(id), ::blet::Logger::DEBUG_LEVEL, parenthesis_msg)
+
+/**
+ * @brief Emergency log to logger
+ */
+#define LOGGER_TO_EMERG_FMT_P(logger, parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(logger, ::blet::Logger::EMERGENCY_LEVEL, parenthesis_msg)
+/**
+ * @brief Alert log to logger
+ */
+#define LOGGER_TO_ALERT_FMT_P(logger, parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(logger, ::blet::Logger::ALERT_LEVEL, parenthesis_msg)
+/**
+ * @brief Critical log to logger
+ */
+#define LOGGER_TO_CRIT_FMT_P(logger, parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(logger, ::blet::Logger::CRITICAL_LEVEL, parenthesis_msg)
+/**
+ * @brief Error log to logger
+ */
+#define LOGGER_TO_ERROR_FMT_P(logger, parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(logger, ::blet::Logger::ERROR_LEVEL, parenthesis_msg)
+/**
+ * @brief Warning log to logger
+ */
+#define LOGGER_TO_WARN_FMT_P(logger, parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(logger, ::blet::Logger::WARNING_LEVEL, parenthesis_msg)
+/**
+ * @brief Notice log to logger
+ */
+#define LOGGER_TO_NOTICE_FMT_P(logger, parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(logger, ::blet::Logger::NOTICE_LEVEL, parenthesis_msg)
+/**
+ * @brief Info log to logger
+ */
+#define LOGGER_TO_INFO_FMT_P(logger, parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(logger, ::blet::Logger::INFO_LEVEL, parenthesis_msg)
+/**
+ * @brief Debug log to logger
+ */
+#define LOGGER_TO_DEBUG_FMT_P(logger, parenthesis_msg) \
+    _LOGGER_LOG_FMT_P(logger, ::blet::Logger::DEBUG_LEVEL, parenthesis_msg)
+
+/**
+ * @brief Use format method for get the custom message
+ */
+#define _LOGGER_LOG(logger, level, stream)                 \
+    do {                                                   \
+        if (logger._M_lock(level)) {                       \
+            ::std::ostringstream __loggerTmpOss("");       \
+            __loggerTmpOss << stream;                      \
+            logger._M_logStream(__loggerTmpOss);           \
+            logger._M_logInfos(level, _LOGGER_FILE_INFOS); \
+            logger._M_unlock();                            \
+        }                                                  \
+    } while (0)
+
+#define LOGGER_EMERG(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::EMERGENCY_LEVEL, stream)
+#define LOGGER_ALERT(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::ALERT_LEVEL, stream)
+#define LOGGER_CRIT(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::CRITICAL_LEVEL, stream)
+#define LOGGER_ERROR(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::ERROR_LEVEL, stream)
+#define LOGGER_WARN(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::WARNING_LEVEL, stream)
+#define LOGGER_NOTICE(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::NOTICE_LEVEL, stream)
+#define LOGGER_INFO(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::INFO_LEVEL, stream)
+#define LOGGER_DEBUG(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::DEBUG_LEVEL, stream)
+
+#define LOGGER_TO_EMERG(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::EMERGENCY_LEVEL, stream)
+#define LOGGER_TO_ALERT(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::ALERT_LEVEL, stream)
+#define LOGGER_TO_CRIT(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::CRITICAL_LEVEL, stream)
+#define LOGGER_TO_ERROR(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::ERROR_LEVEL, stream)
+#define LOGGER_TO_WARN(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::WARNING_LEVEL, stream)
+#define LOGGER_TO_NOTICE(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::NOTICE_LEVEL, stream)
+#define LOGGER_TO_INFO(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::INFO_LEVEL, stream)
+#define LOGGER_TO_DEBUG(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::DEBUG_LEVEL, stream)
+
+#define LOGGER_FLUSH() LOGGER_MAIN().flush()
+#define LOGGER_ID_FLUSH(id) LOGGER_FROM_ID(id).flush()
+#define LOGGER_TO_FLUSH(logger) logger.flush()
+
+#define LOGGER_APPLICATE_DEFAULT_COLOR()                                                                  \
+    LOGGER_MAIN().setLevelFormat(::blet::Logger::EMERGENCY_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_EMERGENCY); \
+    LOGGER_MAIN().setLevelFormat(::blet::Logger::ALERT_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_ALERT);         \
+    LOGGER_MAIN().setLevelFormat(::blet::Logger::CRITICAL_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_CRITICAL);   \
+    LOGGER_MAIN().setLevelFormat(::blet::Logger::ERROR_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_ERROR);         \
+    LOGGER_MAIN().setLevelFormat(::blet::Logger::WARNING_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_WARNING);     \
+    LOGGER_MAIN().setLevelFormat(::blet::Logger::NOTICE_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_NOTICE);       \
+    LOGGER_MAIN().setLevelFormat(::blet::Logger::INFO_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_INFO);           \
+    LOGGER_MAIN().setLevelFormat(::blet::Logger::DEBUG_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_DEBUG)
+
+#define LOGGER_ID_APPLICATE_DEFAULT_COLOR(id)                                                                  \
+    LOGGER_FROM_ID(id).setLevelFormat(::blet::Logger::EMERGENCY_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_EMERGENCY); \
+    LOGGER_FROM_ID(id).setLevelFormat(::blet::Logger::ALERT_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_ALERT);         \
+    LOGGER_FROM_ID(id).setLevelFormat(::blet::Logger::CRITICAL_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_CRITICAL);   \
+    LOGGER_FROM_ID(id).setLevelFormat(::blet::Logger::ERROR_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_ERROR);         \
+    LOGGER_FROM_ID(id).setLevelFormat(::blet::Logger::WARNING_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_WARNING);     \
+    LOGGER_FROM_ID(id).setLevelFormat(::blet::Logger::NOTICE_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_NOTICE);       \
+    LOGGER_FROM_ID(id).setLevelFormat(::blet::Logger::INFO_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_INFO);           \
+    LOGGER_FROM_ID(id).setLevelFormat(::blet::Logger::DEBUG_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_DEBUG)
+
+#define LOGGER_TO_APPLICATE_DEFAULT_COLOR(logger)                                                  \
+    logger.setLevelFormat(::blet::Logger::EMERGENCY_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_EMERGENCY); \
+    logger.setLevelFormat(::blet::Logger::ALERT_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_ALERT);         \
+    logger.setLevelFormat(::blet::Logger::CRITICAL_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_CRITICAL);   \
+    logger.setLevelFormat(::blet::Logger::ERROR_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_ERROR);         \
+    logger.setLevelFormat(::blet::Logger::WARNING_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_WARNING);     \
+    logger.setLevelFormat(::blet::Logger::NOTICE_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_NOTICE);       \
+    logger.setLevelFormat(::blet::Logger::INFO_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_INFO);           \
+    logger.setLevelFormat(::blet::Logger::DEBUG_LEVEL, LOGGER_DEFAULT_FORMAT_COLOR_DEBUG)
+
+#endif // #ifndef _BLET_LOGGER_MACRO_H_
+
+// -------------------------------
+// End include/blet/logger/macro.h
+// -------------------------------
+
+// #include "blet/logger/format.h"
 // ----------------------------------
 // Start include/blet/logger/format.h
 // ----------------------------------
@@ -88,7 +510,7 @@ namespace blet {
 namespace logger {
 
 struct Format {
-    enum eAction {
+    enum EAction {
         PRINT_ACTION = 0,
         NAME_ACTION = 1,
         LEVEL_ACTION = 2,
@@ -97,30 +519,30 @@ struct Format {
         LINE_ACTION = 5,
         FUNC_ACTION = 6,
         PID_ACTION = 7,
-        TIME_ACTION = 8,
-        DECIMAL_ACTION = 9,
-        MESSAGE_ACTION = 10,
-        TID_ACTION = 11
+        TID_ACTION = 8,
+        TIME_ACTION = 9,
+        DECIMAL_ACTION = 10,
+        MESSAGE_ACTION = 11
+    };
+
+    struct Action {
+        inline Action(EAction action_, const std::string& format_) :
+            format(format_),
+            action(action_) {}
+        std::string format;
+        EAction action;
     };
 
     Format();
     Format(const std::string& loggerName, const char* format);
     ~Format();
 
-    std::string time;
-    pid_t pid;
-    pthread_t threadId;
-    int nsecDivisor;
-
-    struct Action {
-        inline Action(eAction action_, const std::string& format_) :
-            action(action_),
-            format(format_) {}
-        eAction action;
-        std::string format;
-    };
-
+    std::string originFormat;
     std::list<Action> actions;
+    std::string time;
+    pthread_t threadId;
+    pid_t pid;
+    int nsecDivisor;
 };
 
 } // namespace logger
@@ -133,26 +555,50 @@ struct Format {
 // End include/blet/logger/format.h
 // --------------------------------
 
+// #include "blet/logger/manager.h"
+// -----------------------------------
+// Start include/blet/logger/manager.h
+// -----------------------------------
+
+#ifndef _BLET_LOGGER_LOGGERMANAGER_H_
+#define _BLET_LOGGER_LOGGERMANAGER_H_
+
+#include <pthread.h>
+
+#include <vector>
+
+namespace blet {
+
+class Logger;
+
+template<int ID>
+class LoggerManager {
+  public:
+    static inline void set(Logger& logger) {
+        _logger = &logger;
+    }
+    static inline Logger& get() {
+        return *_logger;
+    }
+
+  private:
+    static Logger* _logger;
+};
+
+template<int ID>
+Logger* LoggerManager<ID>::_logger = NULL;
+
+} // namespace blet
+
+#endif // #ifndef _BLET_LOGGER_LOGGERMANAGER_H_
+
+// ---------------------------------
+// End include/blet/logger/manager.h
+// ---------------------------------
+
 // -----------------------------
 // Content include/blet/logger.h
 // -----------------------------
-
-#if defined _WIN32 || defined _WIN64 || defined __CYGWIN__
-#define _LOGGER_SEPARATOR_PATH '\\'
-#else
-#define _LOGGER_SEPARATOR_PATH '/'
-#endif
-
-#if defined _WIN32 || defined _WIN64
-#define _LOGGER_FUNCTION_NAME __FUNCTION__
-#else
-#define _LOGGER_FUNCTION_NAME __func__
-#endif
-
-#define _LOGGER_FILENAME (const char*)(::strrchr(__FILE__, _LOGGER_SEPARATOR_PATH) + 1)
-#define _LOGGER_FILE_INFOS __FILE__, _LOGGER_FILENAME, __LINE__, _LOGGER_FUNCTION_NAME
-
-#define LOGGER_MAIN() ::blet::Logger::getMain()
 
 #ifndef __GNUC__
 #ifndef __attribute__
@@ -160,103 +606,9 @@ struct Format {
 #endif
 #endif
 
-#ifdef LOGGER_VARIADIC_MACRO
+// #define LOGGER_ASYNC_WAIT_PRINT
 
-#define _LOGGER_LOG_FMT(logger, level, ...)                  \
-    do {                                                     \
-        if (logger.isPrintable(level) && logger._M_lock()) { \
-            logger._M_logFormat(##__VA_ARGS__);              \
-            logger._M_logInfos(level, _LOGGER_FILE_INFOS);   \
-            logger._M_unlock();                              \
-        }                                                    \
-    } while (0)
-
-#define LOGGER_EMERG_FMT(...) _LOGGER_LOG_FMT(LOGGER_MAIN(), blet::Logger::EMERGENCY, __VA_ARGS__)
-#define LOGGER_ALERT_FMT(...) _LOGGER_LOG_FMT(LOGGER_MAIN(), blet::Logger::ALERT, __VA_ARGS__)
-#define LOGGER_CRIT_FMT(...) _LOGGER_LOG_FMT(LOGGER_MAIN(), blet::Logger::CRITICAL, __VA_ARGS__)
-#define LOGGER_ERROR_FMT(...) _LOGGER_LOG_FMT(LOGGER_MAIN(), blet::Logger::ERROR, __VA_ARGS__)
-#define LOGGER_WARN_FMT(...) _LOGGER_LOG_FMT(LOGGER_MAIN(), blet::Logger::WARNING, __VA_ARGS__)
-#define LOGGER_NOTICE_FMT(...) _LOGGER_LOG_FMT(LOGGER_MAIN(), blet::Logger::NOTICE, __VA_ARGS__)
-#define LOGGER_INFO_FMT(...) _LOGGER_LOG_FMT(LOGGER_MAIN(), blet::Logger::INFO, __VA_ARGS__)
-#define LOGGER_DEBUG_FMT(...) _LOGGER_LOG_FMT(LOGGER_MAIN(), blet::Logger::DEBUG, __VA_ARGS__)
-
-#endif
-
-/**
- * @brief Use format method for get the custom message
- */
-#define _LOGGER_LOG_FMT_P(logger, level, parenthesis_msg)    \
-    do {                                                     \
-        if (logger.isPrintable(level) && logger._M_lock()) { \
-            logger._M_logFormat parenthesis_msg;             \
-            logger._M_logInfos(level, _LOGGER_FILE_INFOS);   \
-            logger._M_unlock();                              \
-        }                                                    \
-    } while (0)
-
-#define LOGGER_EMERG_FMT_P(parenthesis_msg) _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::EMERGENCY, parenthesis_msg)
-#define LOGGER_ALERT_FMT_P(parenthesis_msg) _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::ALERT, parenthesis_msg)
-#define LOGGER_CRIT_FMT_P(parenthesis_msg) _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::CRITICAL, parenthesis_msg)
-#define LOGGER_ERROR_FMT_P(parenthesis_msg) _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::ERROR, parenthesis_msg)
-#define LOGGER_WARN_FMT_P(parenthesis_msg) _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::WARNING, parenthesis_msg)
-#define LOGGER_NOTICE_FMT_P(parenthesis_msg) _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::NOTICE, parenthesis_msg)
-#define LOGGER_INFO_FMT_P(parenthesis_msg) _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::INFO, parenthesis_msg)
-#define LOGGER_DEBUG_FMT_P(parenthesis_msg) _LOGGER_LOG_FMT_P(LOGGER_MAIN(), ::blet::Logger::DEBUG, parenthesis_msg)
-
-/**
- * @brief Use format method for get the custom message
- */
-#define _LOGGER_LOG(logger, level, stream)                   \
-    do {                                                     \
-        if (logger.isPrintable(level) && logger._M_lock()) { \
-            ::std::ostringstream __loggerTmpOss("");         \
-            __loggerTmpOss << stream;                        \
-            logger._M_logStream(__loggerTmpOss);             \
-            logger._M_logInfos(level, _LOGGER_FILE_INFOS);   \
-            logger._M_unlock();                              \
-        }                                                    \
-    } while (0)
-
-#define LOGGER_EMERG(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::EMERGENCY, stream)
-#define LOGGER_ALERT(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::ALERT, stream)
-#define LOGGER_CRIT(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::CRITICAL, stream)
-#define LOGGER_ERROR(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::ERROR, stream)
-#define LOGGER_WARN(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::WARNING, stream)
-#define LOGGER_NOTICE(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::NOTICE, stream)
-#define LOGGER_INFO(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::INFO, stream)
-#define LOGGER_DEBUG(stream) _LOGGER_LOG(LOGGER_MAIN(), ::blet::Logger::DEBUG, stream)
-
-#define LOGGER_TO_EMERG(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::EMERGENCY, stream)
-#define LOGGER_TO_ALERT(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::ALERT, stream)
-#define LOGGER_TO_CRIT(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::CRITICAL, stream)
-#define LOGGER_TO_ERROR(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::ERROR, stream)
-#define LOGGER_TO_WARN(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::WARNING, stream)
-#define LOGGER_TO_NOTICE(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::NOTICE, stream)
-#define LOGGER_TO_INFO(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::INFO, stream)
-#define LOGGER_TO_DEBUG(logger, stream) _LOGGER_LOG(logger, ::blet::Logger::DEBUG, stream)
-
-#define LOGGER_FLUSH() LOGGER_MAIN().flush()
-#define LOGGER_TO_FLUSH(logger) logger.flush()
-
-// OPTIONS
-#ifndef LOGGER_DROP_OVERFLOW
-#define LOGGER_ASYNC_WAIT_PRINT 1
-#endif
-
-#ifndef LOGGER_QUEUE_SIZE
-#define LOGGER_QUEUE_SIZE 1024
-#endif
-
-#ifndef LOGGER_MESSAGE_MAX_SIZE
-#define LOGGER_MESSAGE_MAX_SIZE 2048
-#endif
-
-#ifndef LOGGER_DEFAULT_FORMAT
-#define LOGGER_DEFAULT_FORMAT \
-    "{level:%-6s} [{pid}:{tid}] {name:%10s}: {time}.{decimal:%03d}:{file: %25s:}{line:%-3d} {message}"
-#endif
-
-// name, level, path, file, line, func, pid, time, message, microsec, millisec, nanosec
+#define LOGGER_LEVEL_NB (::blet::Logger::DEBUG_LEVEL + 1)
 
 namespace blet {
 
@@ -264,10 +616,18 @@ class Logger {
   public:
     class Exception : public std::exception {
       public:
-        inline Exception(const char* s1, const char* s2 = "", const char* s3 = "") {
+        inline Exception(const char* s1, const char* s2 = "", const char* s3 = "", const char* s4 = "",
+                         const char* s5 = "", const char* s6 = "", const char* s7 = "", const char* s8 = "",
+                         const char* s9 = "") {
             _str = s1;
             _str += s2;
             _str += s3;
+            _str += s4;
+            _str += s5;
+            _str += s6;
+            _str += s7;
+            _str += s8;
+            _str += s9;
         }
         inline virtual ~Exception() throw() {}
         inline const char* what() const throw() {
@@ -278,29 +638,32 @@ class Logger {
         std::string _str;
     };
 
-    enum eLevel {
-        EMERGENCY = LOG_EMERG,
-        ALERT = LOG_ALERT,
-        CRITICAL = LOG_CRIT,
-        ERROR = LOG_ERR,
-        WARNING = LOG_WARNING,
-        NOTICE = LOG_NOTICE,
-        INFO = LOG_INFO,
-        DEBUG = LOG_DEBUG
+    enum ELevel {
+        EMERGENCY_LEVEL = LOG_EMERG,
+        ALERT_LEVEL = LOG_ALERT,
+        CRITICAL_LEVEL = LOG_CRIT,
+        ERROR_LEVEL = LOG_ERR,
+        WARNING_LEVEL = LOG_WARNING,
+        NOTICE_LEVEL = LOG_NOTICE,
+        INFO_LEVEL = LOG_INFO,
+        DEBUG_LEVEL = LOG_DEBUG
     };
 
     struct Message {
-        eLevel level;
-        struct timespec ts;
+        char* message;
         const char* file;
         const char* filename;
         const char* function;
+        struct timespec ts;
+        pthread_t tid;
         int line;
-        char* message;
+        pid_t pid;
+        ELevel level;
     };
 
-    Logger(const char* name, unsigned int queueMaxSize = LOGGER_QUEUE_SIZE,
-           unsigned int messageMaxSize = LOGGER_MESSAGE_MAX_SIZE);
+    typedef void (*printfunction_t)(void* userData, const std::string& name, const Message& message);
+
+    Logger(const char* name);
     ~Logger();
 
     static inline Logger& getMain() {
@@ -308,37 +671,40 @@ class Logger {
         return logger;
     }
 
-    inline bool isPrintable(const eLevel& level) {
-        return (1 << level) & _levelFilter;
-    }
-
-    inline bool _M_lock() {
+    inline bool _M_lock(const ELevel& level) {
         bool ret = true;
-
-#ifdef LOGGER_ASYNC_WAIT_PRINT
-        ::pthread_mutex_lock(&_logMutex);
-        ::pthread_mutex_lock(&_queueMutex);
-        if (_currentMessageId >= _queueMaxSize - 1) {
-            ::pthread_cond_wait(&_condLog, &_queueMutex);
-        }
-#else
-        // without lock
-        if (_currentMessageId >= _queueMaxSize - 1) {
-            ret = false;
-            ++_droppedMessageNb;
-        }
-        else {
-            ::pthread_mutex_lock(&_logMutex);
-            ::pthread_mutex_lock(&_queueMutex);
-            // with lock
-            if (_currentMessageId >= _queueMaxSize - 1) {
-                ::pthread_mutex_unlock(&_queueMutex);
-                ::pthread_mutex_unlock(&_logMutex);
-                ret = false;
-                ++_droppedMessageNb;
+        if ((1 << level) & _levelFilter) {
+            if ((1 << level) & _levelDropFilter) {
+                ::pthread_mutex_lock(&_logMutex);
+                ::pthread_mutex_lock(&_queueMutex);
+                if (_currentMessageId > _queueMaxSize - 1) {
+                    ::pthread_cond_wait(&_condLog, &_queueMutex);
+                }
+            }
+            else {
+                // without lock
+                if (_currentMessageId > _queueMaxSize - 1) {
+                    ret = false;
+                    ++_dropMessageCounter[::pthread_self() %
+                                          (sizeof(_dropMessageCounter) / sizeof(*_dropMessageCounter))];
+                }
+                else {
+                    ::pthread_mutex_lock(&_logMutex);
+                    ::pthread_mutex_lock(&_queueMutex);
+                    // with lock
+                    if (_currentMessageId > _queueMaxSize - 1) {
+                        ::pthread_mutex_unlock(&_queueMutex);
+                        ::pthread_mutex_unlock(&_logMutex);
+                        ++_dropMessageCounter[::pthread_self() %
+                                              (sizeof(_dropMessageCounter) / sizeof(*_dropMessageCounter))];
+                        ret = false;
+                    }
+                }
             }
         }
-#endif
+        else {
+            ret = false;
+        }
         return ret;
     }
 
@@ -349,32 +715,34 @@ class Logger {
         ::pthread_mutex_unlock(&_logMutex);
     }
 
-    inline void enableLevel(const eLevel& level) {
+    inline void increaseByThread() {}
+
+    inline void enableLevel(const ELevel& level) {
         _levelFilter |= (1 << level);
     }
-    inline void disableLevel(const eLevel& level) {
+    inline void disableLevel(const ELevel& level) {
         _levelFilter &= ~(1 << level);
     }
 
+    inline void enableDropLevel(const ELevel& level) {
+        _levelDropFilter &= ~(1 << level);
+    }
+    inline void disableDropLevel(const ELevel& level) {
+        _levelDropFilter |= (1 << level);
+    }
+
+    /**
+     * @brief wait the last message and flush FILE
+     */
     void flush();
 
     /**
-     * @brief Set format of type
-     * {asctime}
-     * {filename}
-     * {funcname}
-     * {levelname}
-     * {lineno}
-     * {process}
-     * {message}
-     * {name}
-     * {pathname}
-     * {thread}
+     * @brief Set format of level
      *
      * @param level
      * @param format
      */
-    void setTypeFormat(const eLevel& level, const char* format);
+    void setLevelFormat(const ELevel& level, const char* format);
 
     /**
      * @brief Set all format type.
@@ -396,11 +764,19 @@ class Logger {
      */
     void setAllFormat(const char* format);
 
+    void applicateLevelColor(const ELevel& level, const char* color);
+
+    void applicateAllLevelColor();
+
     void setFILE(FILE* file);
 
-    __attribute__((__format__(__printf__, 3, 4))) void logSync(eLevel level, const char* format, ...);
-    void vlog(eLevel level, const char* format, va_list& vargs);
-    __attribute__((__format__(__printf__, 3, 4))) void log(eLevel level, const char* format, ...);
+    void setSyslog(bool active);
+
+    void setUserPrintFunction(printfunction_t printFunction, void* userData);
+
+    __attribute__((__format__(__printf__, 3, 4))) void logSync(ELevel level, const char* format, ...);
+    void vlog(ELevel level, const char* format, va_list& vargs);
+    __attribute__((__format__(__printf__, 3, 4))) void log(ELevel level, const char* format, ...);
     __attribute__((__format__(__printf__, 2, 3))) void emergency(const char* format, ...);
     __attribute__((__format__(__printf__, 2, 3))) void alert(const char* format, ...);
     __attribute__((__format__(__printf__, 2, 3))) void critical(const char* format, ...);
@@ -429,16 +805,14 @@ class Logger {
      * @param line
      * @param function
      */
-    void _M_logInfos(eLevel level, const char* file, const char* filename, int line, const char* function);
-
-    void printMessage(const Message& message);
+    void _M_logInfos(ELevel level, const char* file, const char* filename, int line, const char* function);
 
     const std::string name;
 
   private:
-    inline Logger(const Logger&) :
-        _messageMaxSize(0),
-        _queueMaxSize(0){}; // disable copy
+    typedef void (Logger::*printMethods_t)(const Message& message);
+
+    inline Logger(const Logger&){}; // disable copy
     inline Logger& operator=(const Logger&) {
         return *this;
     }; // disable copy
@@ -475,36 +849,56 @@ class Logger {
         unsigned int messagePrinted;
     };
 
+    // thread
     static void* _threadLogger(void* e);
     void _threadLog();
 
+    // print methods
+    void _printFILE(const Message& message);
+    void _printFILEUser(const Message& message);
+    void _printFILESyslog(const Message& message);
+    void _printFILEUserSyslog(const Message& message);
+    void _printUser(const Message& message);
+    void _printUserSyslog(const Message& message);
+    void _printSyslog(const Message& message);
+    void _choosePrintMethod();
+    void _printMessage(const Message& message);
+
     bool _isStarted;
+    bool _toSyslog;
     unsigned int _currentMessageId;
-    unsigned int _droppedMessageNb;
     pthread_mutex_t _queueMutex;
     pthread_mutex_t _logMutex;
-    pthread_mutex_t _droppedMutex;
+    pthread_mutex_t _printMutex;
     pthread_cond_t _condLog;
     pthread_cond_t _condFlush;
     sem_t _queueSemaphore;
-    sem_t _droppedMessageSemaphore;
     pthread_t _threadLogId;
     int _levelFilter;
+    int _levelDropFilter;
+    int _dropMessageCounter[101];
 
     FILE* _pfile;
 
-    const unsigned int _messageMaxSize;
-    const unsigned int _queueMaxSize;
+    unsigned int _messageMaxSize;
+    unsigned int _queueMaxSize;
     char* _bufferMessages;
     Message* _messages;
     Message* _messagesSwap;
+    printMethods_t _printMethods;
 
-    logger::Format* _formats;
+    logger::Format _formats[LOGGER_LEVEL_NB];
+
+    // user print function
+    void* _userData;
+    printfunction_t _userPrintFunction;
 
     DebugPerf* _perf;
 };
 
 } // namespace blet
+
+#undef LOGGER_LEVEL_NB
 
 #endif // #ifndef _BLET_LOGGER_H_
 
@@ -555,32 +949,19 @@ class Logger {
 #include <string>
 #include <vector>
 
-#ifdef LOGGER_COLOR_LEVELS
-#define LOGGER_EMERGENCY_FORMAT "{bg_magenta}{fg_black}" LOGGER_DEFAULT_FORMAT "{color_reset}"
-#define LOGGER_ALERT_FORMAT "{fg_magenta}" LOGGER_DEFAULT_FORMAT "{color_reset}"
-#define LOGGER_CRITICAL_FORMAT "{bg_red}{fg_black}" LOGGER_DEFAULT_FORMAT "{color_reset}"
-#define LOGGER_ERROR_FORMAT "{fg_red}" LOGGER_DEFAULT_FORMAT "{color_reset}"
-#define LOGGER_WARNING_FORMAT "{fg_yellow}" LOGGER_DEFAULT_FORMAT "{color_reset}"
-#define LOGGER_NOTICE_FORMAT "{fg_cyan}" LOGGER_DEFAULT_FORMAT "{color_reset}"
-#define LOGGER_INFO_FORMAT "{fg_blue}" LOGGER_DEFAULT_FORMAT "{color_reset}"
-#define LOGGER_DEBUG_FORMAT "{fg_green}" LOGGER_DEFAULT_FORMAT "{color_reset}"
-#endif
-
 namespace blet {
 
-inline Logger::Logger(const char* name_, unsigned int queueMaxSize, unsigned int messageMaxSize) :
+inline Logger::Logger(const char* name_) :
     name(name_),
     _isStarted(true),
+    _toSyslog(false),
     _currentMessageId(0),
-    _droppedMessageNb(0),
-    _levelFilter((1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7)),
+    _levelFilter(LOGGER_DEFAULT_FILTER_LEVEL),
+    _levelDropFilter(LOGGER_DEFAULT_DROP_FILTER_LEVEL),
     _pfile(stdout),
-    _messageMaxSize(messageMaxSize),
-    _queueMaxSize(queueMaxSize),
-    _bufferMessages(new char[queueMaxSize * messageMaxSize]),
-    _messages(new Message[queueMaxSize]),
-    _messagesSwap(new Message[queueMaxSize]),
-    _formats(new logger::Format[DEBUG + 1]),
+    _printMethods(&Logger::_printFILE),
+    _userData(NULL),
+    _userPrintFunction(NULL),
     _perf(
 #ifdef LOGGER_PERF_DEBUG
         new DebugPerf(name_)
@@ -588,28 +969,26 @@ inline Logger::Logger(const char* name_, unsigned int queueMaxSize, unsigned int
         NULL
 #endif
     ) {
-    std::cout.sync_with_stdio(false);
+    _messageMaxSize = LOGGER_DEFAULT_MESSAGE_MAX_SIZE;
+    _queueMaxSize = LOGGER_DEFAULT_QUEUE_SIZE;
+    if (_queueMaxSize == 0) {
+        _queueMaxSize = 1;
+    }
+    _bufferMessages = new char[_queueMaxSize * LOGGER_DEFAULT_MESSAGE_MAX_SIZE * 2];
+    _messages = new Message[_queueMaxSize];
+    _messagesSwap = new Message[_queueMaxSize];
+    // initialize message buffers
     for (unsigned int i = 0; i < _queueMaxSize; ++i) {
         _messages[i].message = _bufferMessages + i * _messageMaxSize;
-        _messagesSwap[i].message = _bufferMessages + i * _messageMaxSize;
+        _messagesSwap[i].message = _bufferMessages + _queueMaxSize * _messageMaxSize + i * _messageMaxSize;
     }
+    ::memset(&_dropMessageCounter, 0, sizeof(_dropMessageCounter));
     ::memset(&_queueMutex, 0, sizeof(_queueMutex));
     ::memset(&_logMutex, 0, sizeof(_logMutex));
     ::memset(&_condLog, 0, sizeof(_condLog));
     ::memset(&_condFlush, 0, sizeof(_condFlush));
-#ifdef LOGGER_COLOR_LEVELS
-    setTypeFormat(EMERGENCY, LOGGER_EMERGENCY_FORMAT);
-    setTypeFormat(ALERT, LOGGER_ALERT_FORMAT);
-    setTypeFormat(CRITICAL, LOGGER_CRITICAL_FORMAT);
-    setTypeFormat(ERROR, LOGGER_ERROR_FORMAT);
-    setTypeFormat(WARNING, LOGGER_WARNING_FORMAT);
-    setTypeFormat(NOTICE, LOGGER_NOTICE_FORMAT);
-    setTypeFormat(INFO, LOGGER_INFO_FORMAT);
-    setTypeFormat(DEBUG, LOGGER_DEBUG_FORMAT);
-#else
     // default format
     setAllFormat(LOGGER_DEFAULT_FORMAT);
-#endif
     // init thread
     if (pthread_mutex_init(&_queueMutex, NULL)) {
         throw Exception("pthread_mutex_init: ", strerror(errno));
@@ -617,7 +996,7 @@ inline Logger::Logger(const char* name_, unsigned int queueMaxSize, unsigned int
     if (pthread_mutex_init(&_logMutex, NULL)) {
         throw Exception("pthread_mutex_init: ", strerror(errno));
     }
-    if (pthread_mutex_init(&_droppedMutex, NULL)) {
+    if (pthread_mutex_init(&_printMutex, NULL)) {
         throw Exception("pthread_mutex_init: ", strerror(errno));
     }
     if (pthread_cond_init(&_condLog, NULL)) {
@@ -627,9 +1006,6 @@ inline Logger::Logger(const char* name_, unsigned int queueMaxSize, unsigned int
         throw Exception("pthread_cond_init: ", strerror(errno));
     }
     if (sem_init(&_queueSemaphore, 0, 0)) {
-        throw Exception("sem_init: ", strerror(errno));
-    }
-    if (sem_init(&_droppedMessageSemaphore, 0, 0)) {
         throw Exception("sem_init: ", strerror(errno));
     }
     if (pthread_create(&_threadLogId, NULL, &_threadLogger, this)) {
@@ -642,19 +1018,18 @@ inline Logger::~Logger() {
     // unlock thread
     sem_post(&_queueSemaphore);
     pthread_join(_threadLogId, NULL);
+    // close and destroy sem + cond + mutex
     sem_close(&_queueSemaphore);
     sem_destroy(&_queueSemaphore);
-    sem_close(&_droppedMessageSemaphore);
-    sem_destroy(&_droppedMessageSemaphore);
     pthread_cond_destroy(&_condLog);
     pthread_cond_destroy(&_condFlush);
     pthread_mutex_destroy(&_queueMutex);
     pthread_mutex_destroy(&_logMutex);
+    pthread_mutex_destroy(&_printMutex);
     // delete messageQueue
     delete[] _bufferMessages;
     delete[] _messages;
     delete[] _messagesSwap;
-    delete[] _formats;
 
 #ifdef LOGGER_PERF_DEBUG
     delete _perf;
@@ -663,16 +1038,21 @@ inline Logger::~Logger() {
 
 inline void Logger::flush() {
     int semValue = 1;
-    pthread_mutex_lock(&_queueMutex);
+    ::pthread_mutex_lock(&_queueMutex);
     while (_isStarted && semValue > 0) {
-        sem_getvalue(&_queueSemaphore, &semValue);
+        ::sem_getvalue(&_queueSemaphore, &semValue);
         if (semValue == 0) {
-            sem_post(&_queueSemaphore);
+            ::sem_post(&_queueSemaphore);
         }
-        pthread_cond_wait(&_condFlush, &_queueMutex);
+        ::pthread_cond_wait(&_condFlush, &_queueMutex);
     }
-    pthread_mutex_unlock(&_queueMutex);
-    fflush(_pfile);
+    ::pthread_mutex_unlock(&_queueMutex);
+
+    ::pthread_mutex_lock(&_printMutex);
+    if (_pfile) {
+        ::fflush(_pfile);
+    }
+    ::pthread_mutex_unlock(&_printMutex);
 }
 
 inline void* Logger::_threadLogger(void* e) {
@@ -681,122 +1061,117 @@ inline void* Logger::_threadLogger(void* e) {
     return NULL;
 }
 
-inline void Logger::printMessage(const Logger::Message& message) {
-    static const char* levelToStr[] = {"EMERG", "ALERT", "CRIT", "ERROR", "WARN", "NOTICE", "INFO", "DEBUG"};
-    // static char *buffer = new char[_messageMaxSize];
+static inline const char* s_levelToStr(const blet::Logger::ELevel& level) {
+    const char* ret;
+    switch (level) {
+        case blet::Logger::EMERGENCY_LEVEL:
+            ret = "EMERG";
+            break;
+        case blet::Logger::ALERT_LEVEL:
+            ret = "ALERT";
+            break;
+        case blet::Logger::CRITICAL_LEVEL:
+            ret = "CRIT";
+            break;
+        case blet::Logger::ERROR_LEVEL:
+            ret = "ERROR";
+            break;
+        case blet::Logger::WARNING_LEVEL:
+            ret = "WARN";
+            break;
+        case blet::Logger::NOTICE_LEVEL:
+            ret = "NOTICE";
+            break;
+        case blet::Logger::INFO_LEVEL:
+            ret = "INFO";
+            break;
+        case blet::Logger::DEBUG_LEVEL:
+            ret = "DEBUG";
+            break;
+    }
+    return ret;
+}
 
-    const logger::Format* format = &_formats[message.level];
+inline void Logger::_printMessage(const Logger::Message& message) {
+    const logger::Format& format = _formats[message.level];
 
-    // int index = 0;
-
-    if (message.file) {
-        std::list<logger::Format::Action>::const_iterator cit;
-        for (cit = format->actions.begin(); cit != format->actions.end(); ++cit) {
-            switch (cit->action) {
-                case logger::Format::PRINT_ACTION:
-                    fprintf(_pfile, cit->format.c_str(), 0);
-                    break;
-                case logger::Format::NAME_ACTION:
-                    fprintf(_pfile, cit->format.c_str(), name.c_str());
-                    break;
-                case logger::Format::LEVEL_ACTION:
-                    fprintf(_pfile, cit->format.c_str(), levelToStr[message.level]);
-                    break;
-                case logger::Format::PATH_ACTION:
-                    fprintf(_pfile, cit->format.c_str(), message.file);
-                    break;
-                case logger::Format::FILE_ACTION:
-                    fprintf(_pfile, cit->format.c_str(), message.filename);
-                    break;
-                case logger::Format::LINE_ACTION:
-                    fprintf(_pfile, cit->format.c_str(), message.line);
-                    break;
-                case logger::Format::FUNC_ACTION:
-                    fprintf(_pfile, cit->format.c_str(), message.function);
-                    break;
-                case logger::Format::PID_ACTION:
-                    fprintf(_pfile, cit->format.c_str(), format->pid);
-                    break;
-                case logger::Format::TIME_ACTION:
-                    char ftime[128];
-                    struct tm t;
-                    localtime_r(&(message.ts.tv_sec), &t);
-                    strftime(ftime, 128, format->time.c_str(), &t);
-                    fprintf(_pfile, cit->format.c_str(), ftime);
-                    break;
-                case logger::Format::DECIMAL_ACTION:
-                    fprintf(_pfile, cit->format.c_str(), message.ts.tv_nsec / format->nsecDivisor);
-                    break;
-                case logger::Format::MESSAGE_ACTION:
-                    fprintf(_pfile, cit->format.c_str(), message.message);
-                    break;
-                case logger::Format::TID_ACTION:
-                    fprintf(_pfile, cit->format.c_str(), format->threadId);
-                    break;
+    std::list<logger::Format::Action>::const_iterator cit;
+    for (cit = format.actions.begin(); cit != format.actions.end(); ++cit) {
+        switch (cit->action) {
+            case logger::Format::PRINT_ACTION:
+                fprintf(_pfile, cit->format.c_str(), 0);
+                break;
+            case logger::Format::NAME_ACTION:
+                fprintf(_pfile, cit->format.c_str(), name.c_str());
+                break;
+            case logger::Format::LEVEL_ACTION:
+                fprintf(_pfile, cit->format.c_str(), s_levelToStr(message.level));
+                break;
+            case logger::Format::PATH_ACTION:
+                fprintf(_pfile, cit->format.c_str(), message.file);
+                break;
+            case logger::Format::FILE_ACTION:
+                fprintf(_pfile, cit->format.c_str(), message.filename);
+                break;
+            case logger::Format::LINE_ACTION:
+                fprintf(_pfile, cit->format.c_str(), message.line);
+                break;
+            case logger::Format::FUNC_ACTION:
+                fprintf(_pfile, cit->format.c_str(), message.function);
+                break;
+            case logger::Format::PID_ACTION:
+                fprintf(_pfile, cit->format.c_str(), format.pid);
+                break;
+            case logger::Format::TIME_ACTION: {
+                char ftime[128];
+                struct tm t;
+#ifdef __GNUC__
+                localtime_r(&(message.ts.tv_sec), &t);
+#else
+                localtime_s(&t, &(message.ts.tv_sec));
+#endif
+                strftime(ftime, sizeof(ftime), format.time.c_str(), &t);
+                fprintf(_pfile, cit->format.c_str(), ftime);
+                break;
             }
+            case logger::Format::DECIMAL_ACTION:
+                fprintf(_pfile, cit->format.c_str(), message.ts.tv_nsec / format.nsecDivisor);
+                break;
+            case logger::Format::MESSAGE_ACTION:
+                fprintf(_pfile, cit->format.c_str(), message.message);
+                break;
+            case logger::Format::TID_ACTION:
+                fprintf(_pfile, cit->format.c_str(), message.tid);
+                break;
         }
     }
-    else {
-        std::list<logger::Format::Action>::const_iterator cit;
-        for (cit = format->actions.begin(); cit != format->actions.end(); ++cit) {
-            switch (cit->action) {
-                case logger::Format::PRINT_ACTION:
-                    fprintf(_pfile, cit->format.c_str(), 0);
-                    break;
-                case logger::Format::NAME_ACTION:
-                    fprintf(_pfile, cit->format.c_str(), name.c_str());
-                    break;
-                case logger::Format::LEVEL_ACTION:
-                    fprintf(_pfile, cit->format.c_str(), levelToStr[message.level]);
-                    break;
-                case logger::Format::PID_ACTION:
-                    fprintf(_pfile, cit->format.c_str(), format->pid);
-                    break;
-                case logger::Format::TIME_ACTION:
-                    char ftime[128];
-                    struct tm t;
-                    localtime_r(&(message.ts.tv_sec), &t);
-                    strftime(ftime, 128, format->time.c_str(), &t);
-                    fprintf(_pfile, cit->format.c_str(), ftime);
-                    break;
-                case logger::Format::DECIMAL_ACTION:
-                    fprintf(_pfile, cit->format.c_str(), message.ts.tv_nsec / format->nsecDivisor);
-                    break;
-                case logger::Format::MESSAGE_ACTION:
-                    fprintf(_pfile, cit->format.c_str(), message.message);
-                    break;
-                case logger::Format::TID_ACTION:
-                    fprintf(_pfile, cit->format.c_str(), format->threadId);
-                    break;
-                default:
-                    break;
-            }
-        }
-    }
-
-    // fwrite(buffer, index, 1, _pfile);
 }
 
 inline void Logger::_threadLog() {
     unsigned int lastMessageId;
-#ifndef LOGGER_ASYNC_WAIT_PRINT
     int lastDroppedNb = 0;
     timespec tsDropped;
     ::clock_gettime(CLOCK_REALTIME, &tsDropped);
-#endif
     int semQueueValue = 1;
+    unsigned int waitMoreMessages = 0;
     while (_isStarted || semQueueValue > 0) {
         sem_wait(&_queueSemaphore);
         pthread_mutex_lock(&_queueMutex);
         if (_currentMessageId == 0) {
             sem_getvalue(&_queueSemaphore, &semQueueValue);
-#ifdef LOGGER_ASYNC_WAIT_PRINT
             pthread_cond_signal(&_condLog);
-#endif
             pthread_cond_broadcast(&_condFlush);
             pthread_mutex_unlock(&_queueMutex);
             continue;
         }
+        if (waitMoreMessages < _queueMaxSize / 10 && _currentMessageId < _queueMaxSize / 10) {
+            ++waitMoreMessages;
+            pthread_mutex_unlock(&_queueMutex);
+            sem_post(&_queueSemaphore);
+            continue;
+        }
+        waitMoreMessages = 0;
+
         // swap messages
         Message* tmp = _messages;
         _messages = _messagesSwap;
@@ -805,65 +1180,140 @@ inline void Logger::_threadLog() {
         lastMessageId = _currentMessageId;
         // reset current message id
         _currentMessageId = 0;
-#ifdef LOGGER_ASYNC_WAIT_PRINT
         pthread_cond_signal(&_condLog);
-#else
         timespec currentTime;
         ::clock_gettime(CLOCK_REALTIME, &currentTime);
         if (currentTime.tv_sec > tsDropped.tv_sec) {
             tsDropped.tv_sec = currentTime.tv_sec;
-            unsigned int messageDroppedCount = _droppedMessageNb - lastDroppedNb;
+            unsigned int messageDroppedCount = -lastDroppedNb;
+            for (int i = 0; i < (int)(sizeof(_dropMessageCounter) / sizeof(*_dropMessageCounter)); ++i) {
+                messageDroppedCount += _dropMessageCounter[i];
+            }
             if (messageDroppedCount > 0) {
 #ifdef LOGGER_PERF_DEBUG
                 _perf->messageCount += messageDroppedCount;
 #endif
-                _M_logFormat("Message dropped: %u", messageDroppedCount);
-                _M_logInfos(WARNING, _LOGGER_FILE_INFOS);
+                _M_logFormat("Message(s) dropped: %u", messageDroppedCount);
+                _M_logInfos(WARNING_LEVEL, __FILE__, (::strrchr(__FILE__, _LOGGER_SEPARATOR_PATH) + 1), 0,
+                            _LOGGER_FUNCTION_NAME);
                 // move index
                 ++_currentMessageId;
                 lastDroppedNb += messageDroppedCount;
             }
         }
-
-        // sem_getvalue(&_droppedMessageSemaphore, &semDroppedValue);
-        // if (semDroppedValue - lastDroppedCount > 0) {
-        //     #ifdef LOGGER_PERF_DEBUG
-        //         _perf->messageCount += semDroppedValue - lastDroppedCount;
-        //     #endif
-        //     _M_logFormat("Message dropped: %i", semDroppedValue - lastDroppedCount);
-        //     _M_logInfos(WARNING, _LOGGER_FILE_INFOS);
-        //     // move index
-        //     ++_currentMessageId;
-        //     lastDroppedCount = semDroppedValue;
-        // }
-#endif
         pthread_mutex_unlock(&_queueMutex);
 
         // call print function
-        for (unsigned int i = 0; i < lastMessageId; ++i) {
-            printMessage(_messagesSwap[i]);
+        pthread_mutex_lock(&_printMutex);
+        if (_printMethods) {
+            for (unsigned int i = 0; i < lastMessageId; ++i) {
+                (this->*_printMethods)(_messagesSwap[i]);
 #ifdef LOGGER_PERF_DEBUG
-            ++_perf->messagePrinted;
+                ++_perf->messagePrinted;
 #endif
+            }
         }
+        pthread_mutex_unlock(&_printMutex);
 
         pthread_cond_broadcast(&_condFlush);
     }
 
-#ifndef LOGGER_ASYNC_WAIT_PRINT
-    unsigned int messageDroppedCount = _droppedMessageNb - lastDroppedNb;
+    unsigned int messageDroppedCount = -lastDroppedNb;
+    for (int i = 0; i < (int)(sizeof(_dropMessageCounter) / sizeof(*_dropMessageCounter)); ++i) {
+        messageDroppedCount += _dropMessageCounter[i];
+    }
     if (messageDroppedCount > 0) {
 #ifdef LOGGER_PERF_DEBUG
         _perf->messageCount += messageDroppedCount;
 #endif
-        _M_logFormat("Message dropped: %u", messageDroppedCount);
-        _M_logInfos(WARNING, _LOGGER_FILE_INFOS);
-        printMessage(_messages[0]);
-    }
+        _M_logFormat("Message(s) dropped: %u", messageDroppedCount);
+        _M_logInfos(WARNING_LEVEL, __FILE__, (::strrchr(__FILE__, _LOGGER_SEPARATOR_PATH) + 1), 0,
+                    _LOGGER_FUNCTION_NAME);
+        pthread_mutex_lock(&_printMutex);
+        if (_printMethods) {
+            (this->*_printMethods)(_messages[0]);
+#ifdef LOGGER_PERF_DEBUG
+            ++_perf->messagePrinted;
 #endif
+        }
+        pthread_mutex_unlock(&_printMutex);
+    }
 }
 
-inline void Logger::setTypeFormat(const eLevel& level, const char* format) {
+inline void Logger::_printFILE(const Message& message) {
+    _printMessage(message);
+}
+
+inline void Logger::_printSyslog(const Message& message) {
+    ::syslog(message.level, "%s", message.message);
+}
+
+inline void Logger::_printUser(const Message& message) {
+    _userPrintFunction(_userData, name, message);
+}
+
+inline void Logger::_printFILEUser(const Message& message) {
+    _printFILE(message);
+    _printUser(message);
+}
+
+inline void Logger::_printFILESyslog(const Message& message) {
+    _printFILE(message);
+    _printSyslog(message);
+}
+
+inline void Logger::_printUserSyslog(const Message& message) {
+    _printUser(message);
+    _printSyslog(message);
+}
+
+inline void Logger::_printFILEUserSyslog(const Message& message) {
+    _printFILE(message);
+    _printUser(message);
+    _printSyslog(message);
+}
+
+inline void Logger::_choosePrintMethod() {
+    // create flag
+    int flag = 0;
+    if (_pfile) {
+        flag += 1 << 0;
+    }
+    if (_toSyslog) {
+        flag += 1 << 1;
+    }
+    if (_userPrintFunction) {
+        flag += 1 << 2;
+    }
+    switch (flag) {
+        case 1:
+            _printMethods = &Logger::_printFILE;
+            break;
+        case 2:
+            _printMethods = &Logger::_printSyslog;
+            break;
+        case 3:
+            _printMethods = &Logger::_printFILESyslog;
+            break;
+        case 4:
+            _printMethods = &Logger::_printUser;
+            break;
+        case 5:
+            _printMethods = &Logger::_printFILEUser;
+            break;
+        case 6:
+            _printMethods = &Logger::_printUserSyslog;
+            break;
+        case 7:
+            _printMethods = &Logger::_printFILEUserSyslog;
+            break;
+        default:
+            _printMethods = NULL;
+            break;
+    }
+}
+
+inline void Logger::setLevelFormat(const ELevel& level, const char* format) {
     pthread_mutex_lock(&_queueMutex);
     _formats[level] = logger::Format(name, format);
     pthread_mutex_unlock(&_queueMutex);
@@ -872,17 +1322,35 @@ inline void Logger::setTypeFormat(const eLevel& level, const char* format) {
 inline void Logger::setAllFormat(const char* format) {
     pthread_mutex_lock(&_queueMutex);
     logger::Format fmt = logger::Format(name, format);
-    for (int i = 0; i < DEBUG + 1; ++i) {
+    for (int i = 0; i < static_cast<int>(sizeof(_formats) / sizeof(*_formats)); ++i) {
         _formats[i] = fmt;
     }
     pthread_mutex_unlock(&_queueMutex);
 }
 
 inline void Logger::setFILE(FILE* file) {
+    ::pthread_mutex_lock(&_printMutex);
     _pfile = file;
+    _choosePrintMethod();
+    ::pthread_mutex_unlock(&_printMutex);
 }
 
-inline void Logger::logSync(eLevel level, const char* format, ...) {
+inline void Logger::setSyslog(bool active) {
+    ::pthread_mutex_lock(&_printMutex);
+    _toSyslog = active;
+    _choosePrintMethod();
+    ::pthread_mutex_unlock(&_printMutex);
+}
+
+inline void Logger::setUserPrintFunction(printfunction_t printFunction, void* userData) {
+    ::pthread_mutex_lock(&_printMutex);
+    _userPrintFunction = printFunction;
+    _userData = userData;
+    _choosePrintMethod();
+    ::pthread_mutex_unlock(&_printMutex);
+}
+
+inline void Logger::logSync(ELevel level, const char* format, ...) {
     ::pthread_mutex_lock(&_logMutex);
     // char message[LOGGER_MESSAGE_MAX_SIZE];
     Message msg;
@@ -890,10 +1358,10 @@ inline void Logger::logSync(eLevel level, const char* format, ...) {
 
     ::clock_gettime(CLOCK_REALTIME, &msg.ts);
 
-    // va_list vargs;
-    // va_start(vargs, format);
-    // ::vsnprintf(msg.message, _messageMaxSize, format, vargs);
-    // va_end(vargs);
+    va_list vargs;
+    va_start(vargs, format);
+    ::vsnprintf(msg.message, _messageMaxSize, format, vargs);
+    va_end(vargs);
 
     // create a new message
     msg.level = level;
@@ -902,11 +1370,11 @@ inline void Logger::logSync(eLevel level, const char* format, ...) {
     msg.line = 0;
     msg.function = NULL;
 
-    printMessage(msg);
+    // printMessage(msg);
     ::pthread_mutex_unlock(&_logMutex);
 }
 
-inline void Logger::vlog(eLevel level, const char* format, va_list& vargs) {
+inline void Logger::vlog(ELevel level, const char* format, va_list& vargs) {
     ::pthread_mutex_lock(&_logMutex);
     ::pthread_mutex_lock(&_queueMutex);
 #ifdef LOGGER_ASYNC_WAIT_PRINT
@@ -946,7 +1414,7 @@ inline void Logger::vlog(eLevel level, const char* format, va_list& vargs) {
     ::pthread_mutex_unlock(&_logMutex);
 }
 
-inline void Logger::log(eLevel level, const char* format, ...) {
+inline void Logger::log(ELevel level, const char* format, ...) {
     va_list vargs;
     va_start(vargs, format);
     vlog(level, format, vargs);
@@ -956,56 +1424,56 @@ inline void Logger::log(eLevel level, const char* format, ...) {
 inline void Logger::emergency(const char* format, ...) {
     va_list vargs;
     va_start(vargs, format);
-    vlog(EMERGENCY, format, vargs);
+    vlog(EMERGENCY_LEVEL, format, vargs);
     va_end(vargs);
 }
 
 inline void Logger::alert(const char* format, ...) {
     va_list vargs;
     va_start(vargs, format);
-    vlog(ALERT, format, vargs);
+    vlog(ALERT_LEVEL, format, vargs);
     va_end(vargs);
 }
 
 inline void Logger::critical(const char* format, ...) {
     va_list vargs;
     va_start(vargs, format);
-    vlog(CRITICAL, format, vargs);
+    vlog(CRITICAL_LEVEL, format, vargs);
     va_end(vargs);
 }
 
 inline void Logger::error(const char* format, ...) {
     va_list vargs;
     va_start(vargs, format);
-    vlog(ERROR, format, vargs);
+    vlog(ERROR_LEVEL, format, vargs);
     va_end(vargs);
 }
 
 inline void Logger::warning(const char* format, ...) {
     va_list vargs;
     va_start(vargs, format);
-    vlog(WARNING, format, vargs);
+    vlog(WARNING_LEVEL, format, vargs);
     va_end(vargs);
 }
 
 inline void Logger::notice(const char* format, ...) {
     va_list vargs;
     va_start(vargs, format);
-    vlog(NOTICE, format, vargs);
+    vlog(NOTICE_LEVEL, format, vargs);
     va_end(vargs);
 }
 
 inline void Logger::info(const char* format, ...) {
     va_list vargs;
     va_start(vargs, format);
-    vlog(INFO, format, vargs);
+    vlog(INFO_LEVEL, format, vargs);
     va_end(vargs);
 }
 
 inline void Logger::debug(const char* format, ...) {
     va_list vargs;
     va_start(vargs, format);
-    vlog(DEBUG, format, vargs);
+    vlog(DEBUG_LEVEL, format, vargs);
     va_end(vargs);
 }
 
@@ -1026,7 +1494,7 @@ inline void Logger::_M_logStream(const ::std::ostringstream& oss) {
     }
 }
 
-inline void Logger::_M_logInfos(eLevel level, const char* file, const char* filename, int line, const char* function) {
+inline void Logger::_M_logInfos(ELevel level, const char* file, const char* filename, int line, const char* function) {
 #ifdef LOGGER_PERF_DEBUG
     ++_perf->messageCount;
 #endif
@@ -1039,6 +1507,10 @@ inline void Logger::_M_logInfos(eLevel level, const char* file, const char* file
     _messages[_currentMessageId].filename = filename;
     _messages[_currentMessageId].line = line;
     _messages[_currentMessageId].function = function;
+    _messages[_currentMessageId].tid = ::pthread_self();
+    if (_userPrintFunction) {
+        _messages[_currentMessageId].pid = ::getpid();
+    }
 
     if (_currentMessageId == 0) {
         ::sem_post(&_queueSemaphore);
@@ -1124,45 +1596,70 @@ static inline void s_escapePercent(std::string& str) {
     }
 }
 
-static inline Format::eAction s_nameToEnumAction(const std::string& name) {
-    static const std::pair<std::string, Format::eAction> nameToActionPairs[] = {
-        std::pair<std::string, Format::eAction>("name", Format::NAME_ACTION),
-        std::pair<std::string, Format::eAction>("level", Format::LEVEL_ACTION),
-        std::pair<std::string, Format::eAction>("path", Format::PATH_ACTION),
-        std::pair<std::string, Format::eAction>("file", Format::FILE_ACTION),
-        std::pair<std::string, Format::eAction>("line", Format::LINE_ACTION),
-        std::pair<std::string, Format::eAction>("func", Format::FUNC_ACTION),
-        std::pair<std::string, Format::eAction>("pid", Format::PID_ACTION),
-        std::pair<std::string, Format::eAction>("time", Format::TIME_ACTION),
-        std::pair<std::string, Format::eAction>("decimal", Format::DECIMAL_ACTION),
-        std::pair<std::string, Format::eAction>("message", Format::MESSAGE_ACTION),
-        std::pair<std::string, Format::eAction>("tid", Format::TID_ACTION)};
-    static const std::map<std::string, Format::eAction> nameToEnumAction(
+static inline Format::EAction s_nameToEnumAction(const std::string& name) {
+    static const std::pair<std::string, Format::EAction> nameToActionPairs[] = {
+        std::pair<std::string, Format::EAction>("name", Format::NAME_ACTION),
+        std::pair<std::string, Format::EAction>("level", Format::LEVEL_ACTION),
+        std::pair<std::string, Format::EAction>("path", Format::PATH_ACTION),
+        std::pair<std::string, Format::EAction>("file", Format::FILE_ACTION),
+        std::pair<std::string, Format::EAction>("line", Format::LINE_ACTION),
+        std::pair<std::string, Format::EAction>("func", Format::FUNC_ACTION),
+        std::pair<std::string, Format::EAction>("pid", Format::PID_ACTION),
+        std::pair<std::string, Format::EAction>("time", Format::TIME_ACTION),
+        std::pair<std::string, Format::EAction>("decimal", Format::DECIMAL_ACTION),
+        std::pair<std::string, Format::EAction>("message", Format::MESSAGE_ACTION),
+        std::pair<std::string, Format::EAction>("tid", Format::TID_ACTION)};
+    static const std::map<std::string, Format::EAction> nameToEnumAction(
         nameToActionPairs, nameToActionPairs + sizeof(nameToActionPairs) / sizeof(*nameToActionPairs));
 
-    std::map<std::string, Format::eAction>::const_iterator cit = nameToEnumAction.find(name);
+    std::map<std::string, Format::EAction>::const_iterator cit = nameToEnumAction.find(name);
     if (cit == nameToEnumAction.end()) {
         return Format::PRINT_ACTION;
     }
     return cit->second;
 }
 
-static inline const char* s_idToDefaultFormat(const Format::eAction& id) {
-    static const char* idToDefaultFormat[] = {
-        "unknown",
-        "%s", // name
-        "%s", // level
-        "%s", // path
-        "%s", // file
-        "%d", // line
-        "%s", // func
-        "%d", // pid
-        "%s", // time
-        "%d", // decimal
-        "%s", // message
-        "%X"  // threadid
-    };
-    return idToDefaultFormat[id];
+static inline const char* s_idToDefaultFormat(const Format::EAction& id) {
+    const char* ret = NULL;
+    switch (id) {
+        case Format::PRINT_ACTION:
+            ret = "unknown";
+            break;
+        case Format::NAME_ACTION:
+            ret = "%s";
+            break;
+        case Format::LEVEL_ACTION:
+            ret = "%s";
+            break;
+        case Format::PATH_ACTION:
+            ret = "%s";
+            break;
+        case Format::FILE_ACTION:
+            ret = "%s";
+            break;
+        case Format::LINE_ACTION:
+            ret = "%d";
+            break;
+        case Format::FUNC_ACTION:
+            ret = "%s";
+            break;
+        case Format::PID_ACTION:
+            ret = "%d";
+            break;
+        case Format::TID_ACTION:
+            ret = "%X";
+            break;
+        case Format::TIME_ACTION:
+            ret = "%s";
+            break;
+        case Format::DECIMAL_ACTION:
+            ret = "%d";
+            break;
+        case Format::MESSAGE_ACTION:
+            ret = "%s";
+            break;
+    }
+    return ret;
 }
 
 static inline int s_getDecimalDivisor(const std::string& format) {
@@ -1222,15 +1719,17 @@ static inline const char* s_nameToColorFormat(const std::string& name) {
 }
 
 inline Format::Format() :
+    originFormat(""),
     time(""),
-    pid(0),
     threadId(0),
+    pid(0),
     nsecDivisor(1) {}
 
 inline Format::Format(const std::string& loggerName, const char* format) :
+    originFormat(format),
     time(""),
-    pid(0),
     threadId(0),
+    pid(0),
     nsecDivisor(1) {
     std::string sFormat(format);
     // transform "{:}" non escape characters
@@ -1261,7 +1760,7 @@ inline Format::Format(const std::string& loggerName, const char* format) :
             // get name of key {[...]}
             std::string key = sFormat.substr(indexStart + 1, indexEnd - indexStart - 1);
             // get the id of key
-            eAction actionId = s_nameToEnumAction(key);
+            EAction actionId = s_nameToEnumAction(key);
             if (actionId != PRINT_ACTION) {
                 switch (actionId) {
                     case PID_ACTION:
@@ -1295,7 +1794,7 @@ inline Format::Format(const std::string& loggerName, const char* format) :
             // replace no print character by real
             s_formatDeserialize(formatKey);
             // get the id of key
-            eAction actionId = s_nameToEnumAction(key);
+            EAction actionId = s_nameToEnumAction(key);
             if (actionId != PRINT_ACTION) {
                 switch (actionId) {
                     case PID_ACTION:
@@ -1349,7 +1848,7 @@ inline Format::Format(const std::string& loggerName, const char* format) :
     it = actions.begin();
     while (it != actions.end()) {
         // replace action by string
-        if (it->action == NAME_ACTION || it->action == PID_ACTION || it->action == TID_ACTION) {
+        if (it->action == NAME_ACTION || it->action == PID_ACTION) {
             char buffer[128];
             switch (it->action) {
                 case NAME_ACTION:
@@ -1357,9 +1856,6 @@ inline Format::Format(const std::string& loggerName, const char* format) :
                     break;
                 case PID_ACTION:
                     ::snprintf(buffer, sizeof(buffer), it->format.c_str(), pid);
-                    break;
-                case TID_ACTION:
-                    ::snprintf(buffer, sizeof(buffer), it->format.c_str(), threadId);
                     break;
                 default:
                     break;

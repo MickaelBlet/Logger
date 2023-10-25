@@ -60,22 +60,23 @@ Logger::Logger(const char* name_, unsigned int queueMaxSize, unsigned int messag
     _pfile(stdout),
     _messageMaxSize(messageMaxSize),
     _queueMaxSize(queueMaxSize),
-    _bufferMessages(new char[queueMaxSize * messageMaxSize]),
+    _bufferMessages(new char[queueMaxSize * messageMaxSize * 2]),
     _messages(new Message[queueMaxSize]),
     _messagesSwap(new Message[queueMaxSize]),
     _formats(new logger::Format[DEBUG + 1]),
     _perf(
 #ifdef LOGGER_PERF_DEBUG
-    new DebugPerf(name_)
+        new DebugPerf(name_)
 #else
-    NULL
+        NULL
 #endif
     ) {
     std::cout.sync_with_stdio(false);
     for (unsigned int i = 0; i < _queueMaxSize; ++i) {
         _messages[i].message = _bufferMessages + i * _messageMaxSize;
-        _messagesSwap[i].message = _bufferMessages + i * _messageMaxSize;
+        _messagesSwap[i].message = _bufferMessages + _queueMaxSize * _messageMaxSize + i * _messageMaxSize;
     }
+    ::memset(&threadCounter, 0, sizeof(threadCounter));
     ::memset(&_queueMutex, 0, sizeof(_queueMutex));
     ::memset(&_logMutex, 0, sizeof(_logMutex));
     ::memset(&_condLog, 0, sizeof(_condLog));
@@ -164,13 +165,39 @@ void* Logger::_threadLogger(void* e) {
     return NULL;
 }
 
-void inline Logger::printMessage(const Logger::Message& message) {
-    static const char* levelToStr[] = {"EMERG", "ALERT", "CRIT", "ERROR", "WARN", "NOTICE", "INFO", "DEBUG"};
-    // static char *buffer = new char[_messageMaxSize];
+static inline const char* s_levelToStr(const blet::Logger::eLevel& level) {
+    const char* ret;
+    switch (level) {
+        case blet::Logger::EMERGENCY:
+            ret = "EMERG";
+            break;
+        case blet::Logger::ALERT:
+            ret = "ALERT";
+            break;
+        case blet::Logger::CRITICAL:
+            ret = "CRIT";
+            break;
+        case blet::Logger::ERROR:
+            ret = "ERROR";
+            break;
+        case blet::Logger::WARNING:
+            ret = "WARN";
+            break;
+        case blet::Logger::NOTICE:
+            ret = "NOTICE";
+            break;
+        case blet::Logger::INFO:
+            ret = "INFO";
+            break;
+        case blet::Logger::DEBUG:
+            ret = "DEBUG";
+            break;
+    }
+    return ret;
+}
 
+inline void Logger::printMessage(const Logger::Message& message) {
     const logger::Format* format = &_formats[message.level];
-
-    // int index = 0;
 
     if (message.file) {
         std::list<logger::Format::Action>::const_iterator cit;
@@ -183,7 +210,7 @@ void inline Logger::printMessage(const Logger::Message& message) {
                     fprintf(_pfile, cit->format.c_str(), name.c_str());
                     break;
                 case logger::Format::LEVEL_ACTION:
-                    fprintf(_pfile, cit->format.c_str(), levelToStr[message.level]);
+                    fprintf(_pfile, cit->format.c_str(), s_levelToStr(message.level));
                     break;
                 case logger::Format::PATH_ACTION:
                     fprintf(_pfile, cit->format.c_str(), message.file);
@@ -200,13 +227,14 @@ void inline Logger::printMessage(const Logger::Message& message) {
                 case logger::Format::PID_ACTION:
                     fprintf(_pfile, cit->format.c_str(), format->pid);
                     break;
-                case logger::Format::TIME_ACTION:
+                case logger::Format::TIME_ACTION: {
                     char ftime[128];
                     struct tm t;
                     localtime_r(&(message.ts.tv_sec), &t);
                     strftime(ftime, 128, format->time.c_str(), &t);
                     fprintf(_pfile, cit->format.c_str(), ftime);
                     break;
+                }
                 case logger::Format::DECIMAL_ACTION:
                     fprintf(_pfile, cit->format.c_str(), message.ts.tv_nsec / format->nsecDivisor);
                     break;
@@ -230,18 +258,19 @@ void inline Logger::printMessage(const Logger::Message& message) {
                     fprintf(_pfile, cit->format.c_str(), name.c_str());
                     break;
                 case logger::Format::LEVEL_ACTION:
-                    fprintf(_pfile, cit->format.c_str(), levelToStr[message.level]);
+                    fprintf(_pfile, cit->format.c_str(), s_levelToStr(message.level));
                     break;
                 case logger::Format::PID_ACTION:
                     fprintf(_pfile, cit->format.c_str(), format->pid);
                     break;
-                case logger::Format::TIME_ACTION:
+                case logger::Format::TIME_ACTION: {
                     char ftime[128];
                     struct tm t;
                     localtime_r(&(message.ts.tv_sec), &t);
                     strftime(ftime, 128, format->time.c_str(), &t);
                     fprintf(_pfile, cit->format.c_str(), ftime);
                     break;
+                }
                 case logger::Format::DECIMAL_ACTION:
                     fprintf(_pfile, cit->format.c_str(), message.ts.tv_nsec / format->nsecDivisor);
                     break;
@@ -295,11 +324,14 @@ void Logger::_threadLog() {
         ::clock_gettime(CLOCK_REALTIME, &currentTime);
         if (currentTime.tv_sec > tsDropped.tv_sec) {
             tsDropped.tv_sec = currentTime.tv_sec;
-            unsigned int messageDroppedCount = _droppedMessageNb - lastDroppedNb;
+            unsigned int messageDroppedCount = -lastDroppedNb;
+            for (int i = 0; i < (int)(sizeof(threadCounter) / sizeof(*threadCounter)); ++i) {
+                messageDroppedCount += threadCounter[i];
+            }
             if (messageDroppedCount > 0) {
-                #ifdef LOGGER_PERF_DEBUG
-                    _perf->messageCount += messageDroppedCount;
-                #endif
+#ifdef LOGGER_PERF_DEBUG
+                _perf->messageCount += messageDroppedCount;
+#endif
                 _M_logFormat("Message dropped: %u", messageDroppedCount);
                 _M_logInfos(WARNING, _LOGGER_FILE_INFOS);
                 // move index
@@ -307,18 +339,6 @@ void Logger::_threadLog() {
                 lastDroppedNb += messageDroppedCount;
             }
         }
-
-        // sem_getvalue(&_droppedMessageSemaphore, &semDroppedValue);
-        // if (semDroppedValue - lastDroppedCount > 0) {
-        //     #ifdef LOGGER_PERF_DEBUG
-        //         _perf->messageCount += semDroppedValue - lastDroppedCount;
-        //     #endif
-        //     _M_logFormat("Message dropped: %i", semDroppedValue - lastDroppedCount);
-        //     _M_logInfos(WARNING, _LOGGER_FILE_INFOS);
-        //     // move index
-        //     ++_currentMessageId;
-        //     lastDroppedCount = semDroppedValue;
-        // }
 #endif
         pthread_mutex_unlock(&_queueMutex);
 
@@ -334,14 +354,20 @@ void Logger::_threadLog() {
     }
 
 #ifndef LOGGER_ASYNC_WAIT_PRINT
-    unsigned int messageDroppedCount = _droppedMessageNb - lastDroppedNb;
+    unsigned int messageDroppedCount = -lastDroppedNb;
+    for (int i = 0; i < (int)(sizeof(threadCounter) / sizeof(*threadCounter)); ++i) {
+        messageDroppedCount += threadCounter[i];
+    }
     if (messageDroppedCount > 0) {
-        #ifdef LOGGER_PERF_DEBUG
-            _perf->messageCount += messageDroppedCount;
-        #endif
+#ifdef LOGGER_PERF_DEBUG
+        _perf->messageCount += messageDroppedCount;
+#endif
         _M_logFormat("Message dropped: %u", messageDroppedCount);
         _M_logInfos(WARNING, _LOGGER_FILE_INFOS);
         printMessage(_messages[0]);
+#ifdef LOGGER_PERF_DEBUG
+        ++_perf->messagePrinted;
+#endif
     }
 #endif
 }
@@ -373,10 +399,10 @@ void Logger::logSync(eLevel level, const char* format, ...) {
 
     ::clock_gettime(CLOCK_REALTIME, &msg.ts);
 
-    // va_list vargs;
-    // va_start(vargs, format);
-    // ::vsnprintf(msg.message, _messageMaxSize, format, vargs);
-    // va_end(vargs);
+    va_list vargs;
+    va_start(vargs, format);
+    ::vsnprintf(msg.message, _messageMaxSize, format, vargs);
+    va_end(vargs);
 
     // create a new message
     msg.level = level;
